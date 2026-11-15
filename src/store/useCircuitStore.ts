@@ -16,15 +16,28 @@ import {
 } from '../engine/componentCatalog';
 import { getDefaultTruthChipConfig } from '../engine/customIcEngine';
 import {
+  advanceCircuitSimulation,
   createInitialRuntimeState,
   solveCircuitStep,
   type SimulationRuntimeState,
 } from '../engine/mnaSolver';
+import { extractScopeSampleValue } from '../engine/scopeChannelMeta';
 import { CIRCUIT_PRESETS } from '../presets/circuitPresets';
 
 export type ActiveTool = 'select' | 'wire' | 'delete';
 export type SidebarMode = 'split' | '3d-only' | '2d-only';
 export type SchematicTheme = 'dark' | 'blueprint';
+export type AnalysisTab = 'telemetry' | 'ac' | 'digital';
+
+export interface LoadCircuitOptions {
+  timeScale?: number;
+  scopeChannels?: string[];
+  prewarmSeconds?: number;
+  isRunning?: boolean;
+  highlightedIds?: string[];
+  newlyAddedIds?: string[];
+  preferredAnalysisTab?: AnalysisTab | null;
+}
 
 export interface SelectedEntity {
   kind: 'component' | 'wire';
@@ -33,7 +46,23 @@ export interface SelectedEntity {
 
 export interface OscilloscopeSample {
   t: number;
-  values: Record<string, number>; // componentId -> primary voltage
+  values: Record<string, number>; // componentId -> channel measured quantity (V / V~ / A / A~)
+}
+
+export interface TransientEventSnapshot {
+  t0: number;
+  hasSwitched: boolean;
+  initialCapVoltages: Record<string, number>;
+  initialIndCurrents: Record<string, number>;
+}
+
+function createEmptyTransientAnchor(t0 = 0): TransientEventSnapshot {
+  return {
+    t0,
+    hasSwitched: false,
+    initialCapVoltages: {},
+    initialIndCurrents: {},
+  };
 }
 
 interface HistorySnapshot {
@@ -51,6 +80,8 @@ interface CircuitStoreState {
   wireColor: string;
   isRunning: boolean;
   simTime: number;
+  transientAnchor: TransientEventSnapshot;
+  timeScale: number;
   simRuntime: SimulationRuntimeState;
   telemetryById: Record<string, ComponentTelemetry>;
   wireTelemetryById: Record<string, WireTelemetry>;
@@ -59,6 +90,9 @@ interface CircuitStoreState {
   circuitLoadVersion: number;
   oscilloscopeChannels: string[]; // componentIds (up to 4)
   oscilloscopeSamples: OscilloscopeSample[];
+  highlightedIds: string[];
+  newlyAddedIds: string[];
+  preferredAnalysisTab: AnalysisTab | null;
   show3DLabels: boolean;
   sidebarMode: SidebarMode;
   schematicTheme: SchematicTheme;
@@ -73,9 +107,16 @@ interface CircuitStoreState {
   setShow3DLabels: (show: boolean) => void;
   setSidebarMode: (mode: SidebarMode) => void;
   setSchematicTheme: (theme: SchematicTheme) => void;
+  setTimeScale: (scale: number) => void;
+  setTutorialHighlights: (
+    highlightedIds: string[],
+    newlyAddedIds?: string[],
+    preferredAnalysisTab?: AnalysisTab | null
+  ) => void;
   toggleRunning: () => void;
   resetSimulationTime: () => void;
   stepSimulation: (dt: number) => void;
+  stepOnce: (baseDt?: number) => void;
   recomputeInstant: () => void;
 
   addComponent: (
@@ -102,9 +143,29 @@ interface CircuitStoreState {
   removeEntity: (kind: 'component' | 'wire', id: string) => void;
   autoLayout2D: () => void;
   clearWorkbench: () => void;
-  loadCircuit: (circuit: CircuitData, title?: string, presetId?: string | null) => void;
+  loadCircuit: (
+    circuit: CircuitData,
+    title?: string,
+    presetId?: string | null,
+    options?: LoadCircuitOptions
+  ) => void;
   toggleOscilloscopeChannel: (componentId: string) => void;
   clearOscilloscope: () => void;
+}
+
+function sampleScopeChannels(
+  channels: string[],
+  components: CircuitComponent[],
+  telemetryById: Record<string, ComponentTelemetry>
+): Record<string, number> {
+  const values: Record<string, number> = {};
+  for (const cid of channels) {
+    const tel = telemetryById[cid];
+    if (!tel) continue;
+    const comp = components.find((c) => c.id === cid);
+    values[cid] = extractScopeSampleValue(comp, tel);
+  }
+  return values;
 }
 
 function cloneCircuit(components: CircuitComponent[], wires: Wire[]): HistorySnapshot {
@@ -167,6 +228,8 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
   wireColor: '#38bdf8',
   isRunning: true,
   simTime: 0,
+  transientAnchor: createEmptyTransientAnchor(0),
+  timeScale: 1,
   simRuntime: initialRuntime,
   telemetryById: initialSolved.telemetryById,
   wireTelemetryById: initialSolved.wireTelemetryById,
@@ -174,6 +237,9 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
   warnings: initialSolved.warnings,
   oscilloscopeChannels: pickDefaultScopeChannels(initialPreset.circuit.components),
   oscilloscopeSamples: [],
+  highlightedIds: [],
+  newlyAddedIds: [],
+  preferredAnalysisTab: null,
   show3DLabels: true,
   sidebarMode: 'split',
   schematicTheme: 'dark',
@@ -188,15 +254,22 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
   setShow3DLabels: (show) => set({ show3DLabels: show }),
   setSidebarMode: (mode) => set({ sidebarMode: mode }),
   setSchematicTheme: (theme) => set({ schematicTheme: theme }),
+  setTimeScale: (scale) =>
+    set({ timeScale: Math.min(4, Math.max(0.01, Number.isFinite(scale) ? scale : 1)) }),
+  setTutorialHighlights: (highlightedIds, newlyAddedIds = [], preferredAnalysisTab = null) =>
+    set({ highlightedIds, newlyAddedIds, preferredAnalysisTab }),
 
   toggleRunning: () => set((s) => ({ isRunning: !s.isRunning })),
 
   resetSimulationTime: () => {
     const { components, wires } = get();
     const freshRuntime = createInitialRuntimeState();
-    const res = solveCircuitStep({ components, wires }, freshRuntime, 0);
+    const res = advanceCircuitSimulation({ components, wires }, freshRuntime, 0, {
+      zeroDtMode: 'holdState',
+    });
     set({
       simTime: 0,
+      transientAnchor: createEmptyTransientAnchor(0),
       simRuntime: freshRuntime,
       telemetryById: res.telemetryById,
       wireTelemetryById: res.wireTelemetryById,
@@ -209,12 +282,57 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
   stepSimulation: (dt) => {
     const state = get();
     if (!state.isRunning) return;
-    const res = solveCircuitStep({ components: state.components, wires: state.wires }, state.simRuntime, dt);
-    const values: Record<string, number> = {};
-    for (const cid of state.oscilloscopeChannels) {
-      const tel = res.telemetryById[cid];
-      if (tel) values[cid] = tel.voltageDrop;
-    }
+    const scaledDt = Math.max(0.0001, dt * state.timeScale);
+    const res = advanceCircuitSimulation(
+      { components: state.components, wires: state.wires },
+      state.simRuntime,
+      scaledDt
+    );
+    const values = sampleScopeChannels(
+      state.oscilloscopeChannels,
+      state.components,
+      res.telemetryById
+    );
+    const nextSamples =
+      state.oscilloscopeChannels.length > 0
+        ? [...state.oscilloscopeSamples.slice(-239), { t: res.time, values }]
+        : state.oscilloscopeSamples;
+
+    const fuseSyncNeeded = state.components.some(
+      (c) => c.type === 'FUSE' && state.simRuntime.blownFuses[c.id] && !Boolean(c.props.blown)
+    );
+    const nextComponents = fuseSyncNeeded
+      ? state.components.map((c) =>
+          c.type === 'FUSE' && state.simRuntime.blownFuses[c.id] && !Boolean(c.props.blown)
+            ? { ...c, props: { ...c.props, blown: true } }
+            : c
+        )
+      : state.components;
+
+    set({
+      ...(fuseSyncNeeded ? { components: nextComponents } : {}),
+      simTime: res.time,
+      telemetryById: res.telemetryById,
+      wireTelemetryById: res.wireTelemetryById,
+      implicitGroundUsed: res.implicitGroundUsed,
+      warnings: res.warnings,
+      oscilloscopeSamples: nextSamples,
+    });
+  },
+
+  stepOnce: (baseDt = 0.02) => {
+    const state = get();
+    const scaledDt = Math.max(0.0001, baseDt * state.timeScale);
+    const res = advanceCircuitSimulation(
+      { components: state.components, wires: state.wires },
+      state.simRuntime,
+      scaledDt
+    );
+    const values = sampleScopeChannels(
+      state.oscilloscopeChannels,
+      state.components,
+      res.telemetryById
+    );
     const nextSamples =
       state.oscilloscopeChannels.length > 0
         ? [...state.oscilloscopeSamples.slice(-239), { t: res.time, values }]
@@ -244,8 +362,24 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
 
   recomputeInstant: () => {
     const state = get();
-    const res = solveCircuitStep({ components: state.components, wires: state.wires }, state.simRuntime, 0);
+    const res = advanceCircuitSimulation(
+      { components: state.components, wires: state.wires },
+      state.simRuntime,
+      0,
+      { zeroDtMode: 'holdState' }
+    );
+    const fuseSyncNeeded = state.components.some(
+      (c) => c.type === 'FUSE' && state.simRuntime.blownFuses[c.id] && !Boolean(c.props.blown)
+    );
+    const nextComponents = fuseSyncNeeded
+      ? state.components.map((c) =>
+          c.type === 'FUSE' && state.simRuntime.blownFuses[c.id] && !Boolean(c.props.blown)
+            ? { ...c, props: { ...c.props, blown: true } }
+            : c
+        )
+      : state.components;
     set({
+      ...(fuseSyncNeeded ? { components: nextComponents } : {}),
       telemetryById: res.telemetryById,
       wireTelemetryById: res.wireTelemetryById,
       implicitGroundUsed: res.implicitGroundUsed,
@@ -263,7 +397,9 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
     const { historyPast, simRuntime } = get();
     if (historyPast.length === 0) return;
     const prev = historyPast[historyPast.length - 1];
-    const res = solveCircuitStep({ components: prev.components, wires: prev.wires }, simRuntime, 0);
+    const res = solveCircuitStep({ components: prev.components, wires: prev.wires }, simRuntime, 0, {
+      zeroDtMode: 'holdState',
+    });
     set({
       components: prev.components,
       wires: prev.wires,
@@ -329,7 +465,9 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
     };
 
     const nextComponents = [...state.components, comp];
-    const res = solveCircuitStep({ components: nextComponents, wires: state.wires }, state.simRuntime, 0);
+    const res = solveCircuitStep({ components: nextComponents, wires: state.wires }, state.simRuntime, 0, {
+      zeroDtMode: 'holdState',
+    });
     set({
       components: nextComponents,
       selected: { kind: 'component', id: comp.id },
@@ -379,7 +517,9 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
     };
 
     const nextComponents = [...state.components, comp];
-    const res = solveCircuitStep({ components: nextComponents, wires: state.wires }, state.simRuntime, 0);
+    const res = solveCircuitStep({ components: nextComponents, wires: state.wires }, state.simRuntime, 0, {
+      zeroDtMode: 'holdState',
+    });
     set({
       components: nextComponents,
       selected: { kind: 'component', id: comp.id },
@@ -441,13 +581,74 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
     const nextComponents = state.components.map((c) =>
       c.id === id ? { ...c, props: { ...c.props, [key]: value } } : c
     );
-    const res = solveCircuitStep({ components: nextComponents, wires: state.wires }, state.simRuntime, 0);
+    const target = state.components.find((c) => c.id === id);
+    const propChanged = target ? target.props[key] !== value : false;
+    const isAcParamChange =
+      target?.type === 'AC_SOURCE' ||
+      (target?.type === 'INF_SOURCE' && String(target.props.waveform ?? 'dc') !== 'dc');
+    if (isAcParamChange) {
+      state.simRuntime.acHistory = [];
+    }
+
+    const isTransientSwitch =
+      (target?.type === 'SWITCH_SPST' && key === 'closed') ||
+      (target?.type === 'SWITCH_SPDT' && key === 'position') ||
+      (target?.type === 'DC_SOURCE' && key === 'voltage') ||
+      (target?.type === 'INF_SOURCE' && key === 'voltage') ||
+      (target?.type === 'LOGIC_IN' && key === 'state');
+
+    let nextTransientAnchor = state.transientAnchor;
+    if (isTransientSwitch && propChanged) {
+      const initialCapVoltages: Record<string, number> = {};
+      const initialIndCurrents: Record<string, number> = {};
+      for (const c of nextComponents) {
+        if (c.type === 'CAPACITOR') {
+          initialCapVoltages[c.id] = state.simRuntime.capVoltages[c.id] ?? 0;
+        } else if (c.type === 'INDUCTOR') {
+          initialIndCurrents[c.id] = state.simRuntime.indCurrents[c.id] ?? 0;
+        }
+      }
+      nextTransientAnchor = {
+        t0: state.simTime,
+        hasSwitched: true,
+        initialCapVoltages,
+        initialIndCurrents,
+      };
+    }
+
+    const res = advanceCircuitSimulation(
+      { components: nextComponents, wires: state.wires },
+      state.simRuntime,
+      0,
+      { zeroDtMode: 'holdState' }
+    );
+
+    const isMeterModeChange =
+      (target?.type === 'VOLTMETER' || target?.type === 'AMMETER') &&
+      key === 'mode' &&
+      propChanged &&
+      state.oscilloscopeChannels.includes(id);
+
+    let nextSamples = state.oscilloscopeSamples;
+    if (isMeterModeChange) {
+      nextSamples = [];
+    } else if (isTransientSwitch && propChanged && state.oscilloscopeChannels.length > 0) {
+      const values = sampleScopeChannels(
+        state.oscilloscopeChannels,
+        nextComponents,
+        res.telemetryById
+      );
+      nextSamples = [...state.oscilloscopeSamples.slice(-239), { t: res.time, values }];
+    }
+
     set({
       components: nextComponents,
+      transientAnchor: nextTransientAnchor,
       telemetryById: res.telemetryById,
       wireTelemetryById: res.wireTelemetryById,
       implicitGroundUsed: res.implicitGroundUsed,
       warnings: res.warnings,
+      oscilloscopeSamples: nextSamples,
     });
   },
 
@@ -496,7 +697,9 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       color: colorArg || state.wireColor,
     };
     const nextWires = [...state.wires, wire];
-    const res = solveCircuitStep({ components: state.components, wires: nextWires }, state.simRuntime, 0);
+    const res = solveCircuitStep({ components: state.components, wires: nextWires }, state.simRuntime, 0, {
+      zeroDtMode: 'holdState',
+    });
     set({
       wires: nextWires,
       wiringDraftFrom: null,
@@ -521,7 +724,9 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
     } else {
       nextWires = state.wires.filter((w) => w.id !== id);
     }
-    const res = solveCircuitStep({ components: nextComponents, wires: nextWires }, state.simRuntime, 0);
+    const res = solveCircuitStep({ components: nextComponents, wires: nextWires }, state.simRuntime, 0, {
+      zeroDtMode: 'holdState',
+    });
     set({
       components: nextComponents,
       wires: nextWires,
@@ -587,6 +792,8 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       selected: null,
       wiringDraftFrom: null,
       simTime: 0,
+      transientAnchor: createEmptyTransientAnchor(0),
+      timeScale: 1,
       simRuntime: freshRuntime,
       telemetryById: {},
       wireTelemetryById: {},
@@ -594,11 +801,14 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       warnings: [],
       oscilloscopeChannels: [],
       oscilloscopeSamples: [],
+      highlightedIds: [],
+      newlyAddedIds: [],
+      preferredAnalysisTab: null,
       circuitLoadVersion: s.circuitLoadVersion + 1,
     }));
   },
 
-  loadCircuit: (circuit, title, presetId = null) => {
+  loadCircuit: (circuit, title, presetId = null, options) => {
     const cloned = cloneCircuit(circuit.components, circuit.wires);
     // Ensure every loaded component has both valid 3D & 2D coordinates
     const normalizedComponents = cloned.components.map((c) => ({
@@ -609,11 +819,47 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       rotationY: c.rotationY ?? 0,
     }));
     const freshRuntime = createInitialRuntimeState();
-    const res = solveCircuitStep(
+    const scopeChannels =
+      options?.scopeChannels !== undefined
+        ? options.scopeChannels.slice(0, 4)
+        : pickDefaultScopeChannels(normalizedComponents);
+
+    let res = advanceCircuitSimulation(
       { components: normalizedComponents, wires: cloned.wires },
       freshRuntime,
-      0
+      0,
+      { zeroDtMode: 'holdState' }
     );
+    const samples: OscilloscopeSample[] = [];
+    const prewarmSeconds = Math.max(0, Number(options?.prewarmSeconds ?? 0));
+    if (prewarmSeconds > 0) {
+      const steps = 150;
+      const stepDt = prewarmSeconds / steps;
+      for (let i = 0; i < steps; i++) {
+        res = advanceCircuitSimulation(
+          { components: normalizedComponents, wires: cloned.wires },
+          freshRuntime,
+          stepDt
+        );
+        if (scopeChannels.length > 0) {
+          samples.push({
+            t: res.time,
+            values: sampleScopeChannels(scopeChannels, normalizedComponents, res.telemetryById),
+          });
+        }
+      }
+    }
+
+    const initialCapVoltages: Record<string, number> = {};
+    const initialIndCurrents: Record<string, number> = {};
+    for (const c of normalizedComponents) {
+      if (c.type === 'CAPACITOR') {
+        initialCapVoltages[c.id] = freshRuntime.capVoltages[c.id] ?? 0;
+      } else if (c.type === 'INDUCTOR') {
+        initialIndCurrents[c.id] = freshRuntime.indCurrents[c.id] ?? 0;
+      }
+    }
+
     set((s) => ({
       projectTitle: title || '加载的实验电路',
       activePresetId: presetId,
@@ -621,14 +867,25 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       wires: cloned.wires,
       selected: null,
       wiringDraftFrom: null,
-      simTime: 0,
+      isRunning: options?.isRunning ?? s.isRunning,
+      timeScale: options?.timeScale ?? 1,
+      simTime: res.time,
+      transientAnchor: {
+        t0: res.time,
+        hasSwitched: false,
+        initialCapVoltages,
+        initialIndCurrents,
+      },
       simRuntime: freshRuntime,
       telemetryById: res.telemetryById,
       wireTelemetryById: res.wireTelemetryById,
       implicitGroundUsed: res.implicitGroundUsed,
       warnings: res.warnings,
-      oscilloscopeChannels: pickDefaultScopeChannels(normalizedComponents),
-      oscilloscopeSamples: [],
+      oscilloscopeChannels: scopeChannels,
+      oscilloscopeSamples: samples.slice(-240),
+      highlightedIds: options?.highlightedIds ?? [],
+      newlyAddedIds: options?.newlyAddedIds ?? [],
+      preferredAnalysisTab: options?.preferredAnalysisTab ?? null,
       historyPast: [],
       circuitLoadVersion: s.circuitLoadVersion + 1,
     }));

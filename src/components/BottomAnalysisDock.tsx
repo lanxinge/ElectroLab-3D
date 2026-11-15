@@ -5,10 +5,19 @@ import {
   ChevronUp,
   Cpu,
   Gauge,
+  Radio,
   Trash2,
 } from 'lucide-react';
 import { formatEngineeringValue } from '../engine/componentCatalog';
-import { useCircuitStore } from '../store/useCircuitStore';
+import {
+  computeNiceScaleBound,
+  extractScopeSampleValue,
+  formatScopeAxisTick,
+  formatScopeChannelValue,
+  getScopeChannelMeta,
+  type ScopeChannelMeta,
+} from '../engine/scopeChannelMeta';
+import { useCircuitStore, type AnalysisTab } from '../store/useCircuitStore';
 import { KarnaughMapPanel } from './KarnaughMapPanel';
 
 const SCOPE_COLORS = ['#38bdf8', '#22c55e', '#f59e0b', '#ec4899'];
@@ -22,7 +31,7 @@ export const BottomAnalysisDock: React.FC<BottomAnalysisDockProps> = ({
   embedded = false,
   heightPx,
 }) => {
-  const [activeTab, setActiveTab] = useState<'telemetry' | 'digital'>('telemetry');
+  const [activeTab, setActiveTab] = useState<AnalysisTab>('telemetry');
   const [collapsed, setCollapsed] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -31,18 +40,26 @@ export const BottomAnalysisDock: React.FC<BottomAnalysisDockProps> = ({
   const selected = useCircuitStore((s) => s.selected);
   const oscilloscopeChannels = useCircuitStore((s) => s.oscilloscopeChannels);
   const oscilloscopeSamples = useCircuitStore((s) => s.oscilloscopeSamples);
+  const preferredAnalysisTab = useCircuitStore((s) => s.preferredAnalysisTab);
 
   const setSelected = useCircuitStore((s) => s.setSelected);
   const toggleOscilloscopeChannel = useCircuitStore((s) => s.toggleOscilloscopeChannel);
   const clearOscilloscope = useCircuitStore((s) => s.clearOscilloscope);
 
-  // Auto-switch to Digital tab when user loads a digital preset
+  // Auto-switch to Digital or preferred tutorial tab when circuit context specifies it
   const activePresetId = useCircuitStore((s) => s.activePresetId);
+  const circuitLoadVersion = useCircuitStore((s) => s.circuitLoadVersion);
   useEffect(() => {
-    if (activePresetId === 'preset-majority-voter' || activePresetId === 'preset-full-adder-hex') {
+    if (preferredAnalysisTab) {
+      setActiveTab(preferredAnalysisTab);
+      setCollapsed(false);
+    } else if (
+      activePresetId === 'preset-majority-voter' ||
+      activePresetId === 'preset-full-adder-hex'
+    ) {
       setActiveTab('digital');
     }
-  }, [activePresetId]);
+  }, [activePresetId, preferredAnalysisTab, circuitLoadVersion]);
 
   // Draw Real-Time Oscilloscope Canvas
   useEffect(() => {
@@ -80,28 +97,80 @@ export const BottomAnalysisDock: React.FC<BottomAnalysisDockProps> = ({
     ctx.lineTo(w, h / 2);
     ctx.stroke();
 
-    if (oscilloscopeSamples.length < 2 || oscilloscopeChannels.length === 0) return;
+    if (oscilloscopeSamples.length < 1 || oscilloscopeChannels.length === 0) return;
 
-    // Auto scale Y
-    let maxAbs = 5;
+    const metaByChannel = new Map<string, ScopeChannelMeta>();
+    let hasVoltage = false;
+    let hasCurrent = false;
+    let maxVoltageAbs = 0;
+    let maxCurrentAbs = 0;
+
+    for (const cid of oscilloscopeChannels) {
+      const comp = components.find((x) => x.id === cid);
+      const meta = getScopeChannelMeta(comp);
+      metaByChannel.set(cid, meta);
+      if (meta.dimension === 'current') hasCurrent = true;
+      else hasVoltage = true;
+    }
+
     for (const s of oscilloscopeSamples) {
       for (const ch of oscilloscopeChannels) {
+        const meta = metaByChannel.get(ch);
         const v = Math.abs(s.values[ch] ?? 0);
-        if (v > maxAbs) maxAbs = v;
+        if (meta?.dimension === 'current') {
+          if (v > maxCurrentAbs) maxCurrentAbs = v;
+        } else {
+          if (v > maxVoltageAbs) maxVoltageAbs = v;
+        }
       }
     }
-    const scaleMax = Math.ceil(maxAbs * 1.15);
 
-    ctx.fillStyle = '#64748b';
+    const vScaleMax = computeNiceScaleBound(maxVoltageAbs, 1);
+    const iScaleMax = computeNiceScaleBound(maxCurrentAbs, 0.001);
+
     ctx.font = '10px monospace';
-    ctx.fillText(`+${scaleMax}V`, 6, 12);
-    ctx.fillText(`0V`, 6, h / 2 - 4);
-    ctx.fillText(`-${scaleMax}V`, 6, h - 5);
+    if (hasVoltage && hasCurrent) {
+      ctx.fillStyle = '#7dd3fc';
+      ctx.textAlign = 'left';
+      ctx.fillText(formatScopeAxisTick(vScaleMax, 'voltage', vScaleMax), 6, 12);
+      ctx.fillText('0V', 6, h / 2 - 4);
+      ctx.fillText(formatScopeAxisTick(-vScaleMax, 'voltage', vScaleMax), 6, h - 5);
+
+      ctx.fillStyle = '#6ee7b7';
+      ctx.textAlign = 'right';
+      ctx.fillText(formatScopeAxisTick(iScaleMax, 'current', iScaleMax), w - 6, 12);
+      ctx.fillText(formatScopeAxisTick(0, 'current', iScaleMax), w - 6, h / 2 - 4);
+      ctx.fillText(formatScopeAxisTick(-iScaleMax, 'current', iScaleMax), w - 6, h - 5);
+      ctx.textAlign = 'left';
+    } else if (hasCurrent) {
+      ctx.fillStyle = '#6ee7b7';
+      ctx.textAlign = 'left';
+      ctx.fillText(formatScopeAxisTick(iScaleMax, 'current', iScaleMax), 6, 12);
+      ctx.fillText(formatScopeAxisTick(0, 'current', iScaleMax), 6, h / 2 - 4);
+      ctx.fillText(formatScopeAxisTick(-iScaleMax, 'current', iScaleMax), 6, h - 5);
+    } else {
+      ctx.fillStyle = '#7dd3fc';
+      ctx.textAlign = 'left';
+      ctx.fillText(formatScopeAxisTick(vScaleMax, 'voltage', vScaleMax), 6, 12);
+      ctx.fillText('0V', 6, h / 2 - 4);
+      ctx.fillText(formatScopeAxisTick(-vScaleMax, 'voltage', vScaleMax), 6, h - 5);
+    }
 
     const n = oscilloscopeSamples.length;
     oscilloscopeChannels.forEach((cid, cIdx) => {
+      const meta = metaByChannel.get(cid);
+      const scaleMax = meta?.dimension === 'current' ? iScaleMax : vScaleMax;
       ctx.strokeStyle = SCOPE_COLORS[cIdx % SCOPE_COLORS.length];
       ctx.lineWidth = 2;
+      if (n === 1) {
+        const val = oscilloscopeSamples[0].values[cid] ?? 0;
+        const y = h / 2 - (val / scaleMax) * (h * 0.44);
+        ctx.fillStyle = SCOPE_COLORS[cIdx % SCOPE_COLORS.length];
+        ctx.beginPath();
+        ctx.arc(8, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        return;
+      }
       ctx.beginPath();
       for (let i = 0; i < n; i++) {
         const x = (i / Math.max(1, n - 1)) * w;
@@ -112,7 +181,7 @@ export const BottomAnalysisDock: React.FC<BottomAnalysisDockProps> = ({
       }
       ctx.stroke();
     });
-  }, [oscilloscopeSamples, oscilloscopeChannels, collapsed, activeTab]);
+  }, [oscilloscopeSamples, oscilloscopeChannels, components, collapsed, activeTab]);
 
   return (
     <div
@@ -139,6 +208,22 @@ export const BottomAnalysisDock: React.FC<BottomAnalysisDockProps> = ({
           >
             <Gauge className="w-3.5 h-3.5" />
             实时电参量与示波器
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveTab('ac');
+              setCollapsed(false);
+            }}
+            data-testid="analysis-tab-ac"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition ${
+              activeTab === 'ac' && !collapsed
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Radio className="w-3.5 h-3.5" />
+            交流有效值与功率因数
           </button>
 
           <button
@@ -178,6 +263,58 @@ export const BottomAnalysisDock: React.FC<BottomAnalysisDockProps> = ({
         <div className="flex-1 min-h-0 overflow-hidden">
           {activeTab === 'digital' ? (
             <KarnaughMapPanel />
+          ) : activeTab === 'ac' ? (
+            <div data-testid="analysis-ac-table" className="h-full overflow-auto">
+              <table className="w-full text-left text-[11px] font-mono">
+                <thead className="bg-slate-950 text-slate-400 sticky top-0 z-10">
+                  <tr>
+                    <th className="py-1.5 px-2.5 border-b border-slate-800">元件</th>
+                    <th className="py-1.5 px-2 border-b border-slate-800">有效值电压 Urms</th>
+                    <th className="py-1.5 px-2 border-b border-slate-800">有效值电流 Irms</th>
+                    <th className="py-1.5 px-2 border-b border-slate-800">平均有功 P</th>
+                    <th className="py-1.5 px-2 border-b border-slate-800">视在功率 S</th>
+                    <th className="py-1.5 px-2 border-b border-slate-800">功率因数 cosφ</th>
+                    <th className="py-1.5 px-2 border-b border-slate-800">说明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {components.map((c) => {
+                    const tel = telemetryById[c.id];
+                    const isSel = selected?.kind === 'component' && selected.id === c.id;
+                    const uRms = tel?.vRms ?? Math.abs(tel?.voltageDrop ?? 0);
+                    const iRms = tel?.iRms ?? Math.abs(tel?.current ?? 0);
+                    const pAvg = tel?.avgPower ?? tel?.power ?? 0;
+                    const sApp = tel?.apparentPower ?? uRms * iRms;
+                    const pf = tel?.powerFactor ?? (sApp > 1e-7 ? Math.min(1, pAvg / sApp) : 1);
+                    return (
+                      <tr
+                        key={c.id}
+                        onClick={() => setSelected({ kind: 'component', id: c.id })}
+                        className={`cursor-pointer border-b border-slate-800/50 ${
+                          tel?.overloaded
+                            ? 'bg-red-950/35 text-red-200'
+                            : isSel
+                            ? 'bg-sky-500/15 text-sky-100'
+                            : 'hover:bg-slate-800/50 text-slate-300'
+                        }`}
+                      >
+                        <td className="py-1 px-2.5 font-semibold">{c.label}</td>
+                        <td className="py-1 px-2 text-sky-300">{uRms.toFixed(2)} V~</td>
+                        <td className="py-1 px-2 text-emerald-300">
+                          {iRms >= 1 ? `${iRms.toFixed(2)} A~` : `${(iRms * 1000).toFixed(1)} mA~`}
+                        </td>
+                        <td className="py-1 px-2 text-amber-300">{formatEngineeringValue(pAvg, 'W')}</td>
+                        <td className="py-1 px-2 text-cyan-300">{formatEngineeringValue(sApp, 'VA')}</td>
+                        <td className="py-1 px-2 text-violet-300 font-semibold">{pf.toFixed(3)}</td>
+                        <td className="py-1 px-2 truncate max-w-[160px] text-slate-400 font-sans">
+                          {tel?.overloaded ? '过压/过载告警！' : tel?.extraInfo || '正常'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="h-full grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-slate-800 overflow-hidden">
               {/* Live Telemetry Table */}
@@ -274,13 +411,16 @@ export const BottomAnalysisDock: React.FC<BottomAnalysisDockProps> = ({
                       const c = components.find((x) => x.id === cid);
                       if (!c) return null;
                       const tel = telemetryById[cid];
+                      const meta = getScopeChannelMeta(c);
+                      const measured = tel ? extractScopeSampleValue(c, tel) : 0;
                       return (
                         <span
                           key={cid}
+                          data-testid={`scope-channel-pill-${cid}`}
                           style={{ color: SCOPE_COLORS[idx % SCOPE_COLORS.length] }}
                           className="font-mono text-[10px] bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800"
                         >
-                          CH{idx + 1} {c.label}: {(tel?.voltageDrop ?? 0).toFixed(2)}V
+                          CH{idx + 1} {c.label} · {meta.quantityLabel}: {formatScopeChannelValue(measured, meta)}
                         </span>
                       );
                     })}

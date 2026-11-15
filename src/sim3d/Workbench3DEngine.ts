@@ -30,6 +30,7 @@ export interface EngineCallbacks {
     simTime: number;
     wiringDraftFrom: PinRef | null;
     show3DLabels: boolean;
+    highlightedIds?: string[];
   };
   onSelect: (sel: SelectedEntity | null) => void;
   onDeleteEntity: (kind: 'component' | 'wire', id: string) => void;
@@ -203,6 +204,32 @@ export class Workbench3DEngine {
     } else {
       this.camera.position.set(0, 11.5, 11.5);
     }
+    this.controls.update();
+  }
+
+  public fitCameraToCircuit(): void {
+    const { components } = this.callbacks.getState();
+    if (components.length === 0) {
+      this.setCameraPreset('iso');
+      return;
+    }
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const c of components) {
+      const [x, , z] = c.pos3d;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    }
+    const cx = (minX + maxX) * 0.5;
+    const cz = (minZ + maxZ) * 0.5;
+    const span = Math.max(4, maxX - minX + 3, maxZ - minZ + 3);
+    const dist = Math.min(25, Math.max(9.5, span * 1.15));
+    this.controls.target.set(cx, 0, cz);
+    this.camera.position.set(cx, dist * 0.82, cz + dist * 0.86);
     this.controls.update();
   }
 
@@ -657,6 +684,15 @@ export class Workbench3DEngine {
         (handle.overloadRing.material as THREE.MeshBasicMaterial).opacity = pulse;
       } else {
         handle.overloadRing.visible = false;
+      }
+
+      const isSpotlighted = Boolean(state.highlightedIds?.includes(comp.id));
+      if (isSpotlighted) {
+        handle.highlightRing.visible = true;
+        const pulse = 0.52 + 0.38 * Math.sin(timestamp * 0.006);
+        (handle.highlightRing.material as THREE.MeshBasicMaterial).opacity = pulse;
+      } else {
+        handle.highlightRing.visible = false;
       }
 
       for (const [pinId, ring] of handle.pinRings.entries()) {

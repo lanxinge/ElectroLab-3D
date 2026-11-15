@@ -32,6 +32,9 @@ export const Workbench3DView: React.FC = () => {
   const warnings = useCircuitStore((s) => s.warnings);
   const implicitGroundUsed = useCircuitStore((s) => s.implicitGroundUsed);
   const wiringDraftFrom = useCircuitStore((s) => s.wiringDraftFrom);
+  const circuitLoadVersion = useCircuitStore((s) => s.circuitLoadVersion);
+  const highlightedIds = useCircuitStore((s) => s.highlightedIds);
+  const newlyAddedIds = useCircuitStore((s) => s.newlyAddedIds);
 
   const setActiveTool = useCircuitStore((s) => s.setActiveTool);
   const setWireColor = useCircuitStore((s) => s.setWireColor);
@@ -60,6 +63,7 @@ export const Workbench3DView: React.FC = () => {
             simTime: st.simTime,
             wiringDraftFrom: st.wiringDraftFrom,
             show3DLabels: st.show3DLabels,
+            highlightedIds: st.highlightedIds,
           };
         },
         onSelect: (sel) => useCircuitStore.getState().setSelected(sel),
@@ -119,6 +123,12 @@ export const Workbench3DView: React.FC = () => {
     engineRef.current?.syncSceneFromStore();
   }, [components, wires]);
 
+  useEffect(() => {
+    if (circuitLoadVersion > 0) {
+      engineRef.current?.fitCameraToCircuit();
+    }
+  }, [circuitLoadVersion]);
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const type = e.dataTransfer.getData('application/x-electrolab-component') as ComponentType;
@@ -166,6 +176,9 @@ export const Workbench3DView: React.FC = () => {
           {components.map((c) => {
             const tel = telemetryById[c.id];
             const isSel = selected?.kind === 'component' && selected.id === c.id;
+            const isHighlighted = highlightedIds.includes(c.id);
+            const isNew = newlyAddedIds.includes(c.id);
+            const isRms = c.props.mode === 'rms';
             const badgeVal =
               c.type === 'LOGIC_IN' || c.type === 'LOGIC_OUT' || c.type === 'CLOCK'
                 ? `${tel?.logicState ?? 0}`
@@ -173,6 +186,20 @@ export const Workbench3DView: React.FC = () => {
                 ? `HEX:${(tel?.logicState ?? 0).toString(16).toUpperCase()}`
                 : c.type === 'GROUND'
                 ? '0V'
+                : c.type === 'VOLTMETER' && isRms
+                ? `${(tel?.vRms ?? Math.abs(tel?.voltageDrop ?? 0)).toFixed(2)}V~`
+                : c.type === 'VOLTMETER'
+                ? `${(tel?.voltageDrop ?? 0).toFixed(2)}V`
+                : c.type === 'AMMETER' && isRms
+                ? (() => {
+                    const ir = tel?.iRms ?? Math.abs(tel?.current ?? 0);
+                    return ir >= 1 ? `${ir.toFixed(2)}A~` : `${(ir * 1000).toFixed(1)}mA~`;
+                  })()
+                : c.type === 'AMMETER'
+                ? (() => {
+                    const ic = tel?.current ?? 0;
+                    return Math.abs(ic) >= 1 ? `${ic.toFixed(2)}A` : `${(ic * 1000).toFixed(1)}mA`;
+                  })()
                 : `${(tel?.voltageDrop ?? 0).toFixed(2)}V · ${
                     Math.abs(tel?.current ?? 0) >= 1
                       ? `${(tel?.current ?? 0).toFixed(2)}A`
@@ -190,11 +217,18 @@ export const Workbench3DView: React.FC = () => {
                 className={`absolute px-1.5 py-0.5 rounded text-[10px] font-mono whitespace-nowrap border backdrop-blur-sm transition-colors ${
                   tel?.overloaded
                     ? 'bg-red-950/90 border-red-500 text-red-200 shadow-lg shadow-red-500/20'
+                    : isHighlighted
+                    ? 'bg-amber-950/90 border-amber-400 text-amber-100 shadow-md shadow-amber-500/20'
                     : isSel
                     ? 'bg-sky-950/90 border-sky-400 text-sky-100'
                     : 'bg-slate-900/80 border-slate-700/80 text-slate-200'
                 }`}
               >
+                {isNew && (
+                  <span className="mr-1 px-1 py-0.2 rounded bg-emerald-500/25 text-emerald-300 font-sans font-semibold text-[9px]">
+                    +新增
+                  </span>
+                )}
                 <span className="font-semibold">{c.label}</span>
                 <span className="mx-1 text-slate-500">|</span>
                 <span className={tel?.overloaded ? 'text-red-300 font-bold' : 'text-emerald-300'}>

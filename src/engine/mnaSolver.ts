@@ -13,6 +13,144 @@ import {
   parseTruthChipConfig,
 } from './customIcEngine';
 
+export interface AcHistorySlice {
+  dt: number;
+  v: Record<string, number>;
+  i: Record<string, number>;
+}
+
+export type ZeroDtSolveMode = 'dcOperatingPoint' | 'holdState';
+
+export interface SolveStepOptions {
+  overrideLogicInputs?: Record<string, number>;
+  zeroDtMode?: ZeroDtSolveMode;
+}
+
+const CAP_HOLD_G = 1e5; // Stiff Norton hold ensuring u_C(0_+) = u_C(0_-) without singular V-loop
+const IND_HOLD_G = 1e-5; // Tiny parallel leak ensuring i_L(0_+) = i_L(0_-) without open float
+const IND_COIL_R = 0.02;
+const TRANSFORMER_SEC_R = 0.01;
+
+export function formatComponentOverloadWarning(
+  comp: CircuitComponent,
+  tel: Pick<
+    ComponentTelemetry,
+    'voltageDrop' | 'current' | 'power' | 'vRms' | 'iRms' | 'avgPower'
+  >,
+  maxPower: number,
+  useAcRms: boolean
+): { loadRatio: number; overloaded: boolean; warning?: string } {
+  if (
+    comp.type === 'INF_SOURCE' ||
+    comp.type === 'INF_RESISTOR' ||
+    comp.type === 'GROUND' ||
+    comp.type === 'VOLTMETER' ||
+    comp.type === 'AMMETER'
+  ) {
+    return { loadRatio: 0, overloaded: false };
+  }
+
+  if (comp.type === 'DC_SOURCE' || comp.type === 'AC_SOURCE') {
+    const iCheck = useAcRms ? (tel.iRms ?? Math.abs(tel.current)) : Math.abs(tel.current);
+    const overloaded = iCheck > 8;
+    const pCheck = useAcRms ? (tel.avgPower ?? tel.power) : tel.power;
+    const loadRatio =
+      Number.isFinite(maxPower) && maxPower > 0 ? pCheck / maxPower : overloaded ? 1.5 : 0;
+    return {
+      loadRatio,
+      overloaded,
+      warning: overloaded
+        ? `${comp.label} 输出过流 (${iCheck.toFixed(2)}A / 上限 8A)`
+        : undefined,
+    };
+  }
+
+  if (comp.type === 'CAPACITOR') {
+    const vMax = Math.max(1, Number(comp.props.maxVoltage ?? 450));
+    const vPeak = useAcRms
+      ? Math.max(Math.abs(tel.voltageDrop), (tel.vRms ?? 0) * Math.SQRT2)
+      : Math.abs(tel.voltageDrop);
+    const loadRatio = vPeak / vMax;
+    const overloaded = loadRatio > 1.0;
+    return {
+      loadRatio,
+      overloaded,
+      warning: overloaded
+        ? `${comp.label} 耐压过载 (峰值 ${vPeak.toFixed(1)}V / 耐压 ${vMax}V)`
+        : undefined,
+    };
+  }
+
+  if (comp.type === 'INDUCTOR') {
+    const iMax = Math.max(0.1, Number(comp.props.maxCurrent ?? 8));
+    const iCheck = useAcRms ? (tel.iRms ?? Math.abs(tel.current)) : Math.abs(tel.current);
+    const copperPower = iCheck * iCheck * IND_COIL_R;
+    const pLimit = comp.props.maxPower !== undefined ? Number(comp.props.maxPower) : maxPower;
+    const iRatio = iCheck / iMax;
+    const pRatio = Number.isFinite(pLimit) && pLimit > 0 ? copperPower / pLimit : 0;
+    const loadRatio = Math.max(iRatio, pRatio);
+    const overloaded = loadRatio > 1.0;
+    return {
+      loadRatio,
+      overloaded,
+      warning: overloaded
+        ? iRatio >= pRatio
+          ? `${comp.label} 过流告警 (${iCheck.toFixed(2)}A / 额定 ${iMax}A)`
+          : `${comp.label} 铜耗过载 (${copperPower.toFixed(2)}W / 额定 ${pLimit}W)`
+        : undefined,
+    };
+  }
+
+  if (comp.type === 'TRANSFORMER') {
+    const iMax = Math.max(0.1, Number(comp.props.maxCurrent ?? 15));
+    const iCheck = useAcRms ? (tel.iRms ?? Math.abs(tel.current)) : Math.abs(tel.current);
+    const copperPower = iCheck * iCheck * TRANSFORMER_SEC_R;
+    const pLimit = comp.props.maxPower !== undefined ? Number(comp.props.maxPower) : maxPower;
+    const iRatio = iCheck / iMax;
+    const pRatio = Number.isFinite(pLimit) && pLimit > 0 ? copperPower / pLimit : 0;
+    const loadRatio = Math.max(iRatio, pRatio);
+    const overloaded = loadRatio > 1.0;
+    return {
+      loadRatio,
+      overloaded,
+      warning: overloaded
+        ? `${comp.label} 副边过流告警 (${iCheck.toFixed(2)}A / 额定 ${iMax}A)`
+        : undefined,
+    };
+  }
+
+  if (comp.type === 'LAMP') {
+    const pRated = Math.max(0.05, Number(comp.props.ratedPower ?? 1.5));
+    const pLimit =
+      comp.props.maxPower !== undefined
+        ? Number(comp.props.maxPower)
+        : useAcRms
+        ? pRated * 1.35
+        : pRated * 2.5;
+    const pCheck = useAcRms ? (tel.avgPower ?? tel.power) : tel.power;
+    const loadRatio = Number.isFinite(pLimit) && pLimit > 0 ? pCheck / pLimit : 0;
+    const overloaded = Number.isFinite(pLimit) && loadRatio > 1.0;
+    return {
+      loadRatio,
+      overloaded,
+      warning: overloaded
+        ? `${comp.label} 过载 (${pCheck.toFixed(2)}W / 额定 ${pLimit.toFixed(2)}W)`
+        : undefined,
+    };
+  }
+
+  const pCheck = useAcRms ? (tel.avgPower ?? tel.power) : tel.power;
+  const loadRatio = Number.isFinite(maxPower) && maxPower > 0 ? pCheck / maxPower : 0;
+  const overloaded = Number.isFinite(maxPower) && loadRatio > 1.0;
+  return {
+    loadRatio,
+    overloaded,
+    warning: overloaded
+      ? `${comp.label} 过载/过流 (${pCheck.toFixed(2)}W / 额定 ${maxPower}W)`
+      : undefined,
+  };
+}
+
 export interface SimulationRuntimeState {
   time: number;
   capVoltages: Record<string, number>;
@@ -22,6 +160,7 @@ export interface SimulationRuntimeState {
   blownFuses: Record<string, boolean>;
   prevClockHigh: Record<string, boolean>;
   lastNodeVoltages: Record<string, number>;
+  acHistory: AcHistorySlice[];
 }
 
 export function createInitialRuntimeState(): SimulationRuntimeState {
@@ -34,6 +173,7 @@ export function createInitialRuntimeState(): SimulationRuntimeState {
     blownFuses: {},
     prevClockHigh: {},
     lastNodeVoltages: {},
+    acHistory: [],
   };
 }
 
@@ -238,8 +378,9 @@ export function solveCircuitStep(
   circuit: CircuitData,
   simState: SimulationRuntimeState,
   dt: number,
-  options?: { overrideLogicInputs?: Record<string, number> }
+  options?: SolveStepOptions
 ): SimulationStepResult {
+  const zeroDtMode: ZeroDtSolveMode = options?.zeroDtMode ?? 'dcOperatingPoint';
   const expanded = expandCircuitHierarchy(circuit);
   const components = expanded.flatCircuit.components;
   const wires = expanded.flatCircuit.wires;
@@ -640,8 +781,9 @@ export function solveCircuitStep(
             ? Number(c.props.voltage ?? 12)
             : Number(c.props.amplitude ?? 5);
         const freq = Number(c.props.frequency ?? 2);
+        const phaseRad = (Number(c.props.phase ?? 0) * Math.PI) / 180;
         const dcOff = c.type === 'INF_SOURCE' ? 0 : Number(c.props.dcOffset ?? 0);
-        const angle = 2 * Math.PI * freq * timeNext;
+        const angle = 2 * Math.PI * freq * timeNext + phaseRad;
         const ac =
           wf === 'square'
             ? Math.sin(angle) >= 0
@@ -897,6 +1039,10 @@ export function solveCircuitStep(
             // Companion model: I_C = gC * (Vp - Vn) - gC * vPrev
             // Equivalent Norton current source pushing from nN -> nP of value iHist
             stampI(nN, nP, iHist);
+          } else if (zeroDtMode === 'holdState') {
+            // Instantaneous t = 0_+ recompute preserving u_C(0_+) = u_C(0_-)
+            stampG(nP, nN, CAP_HOLD_G);
+            stampI(nN, nP, CAP_HOLD_G * vPrev);
           } else {
             // DC Steady State (dt === 0): capacitor is open circuit with high bleed resistor
             stampG(nP, nN, 1e-9);
@@ -910,16 +1056,20 @@ export function solveCircuitStep(
           const iPrev = simState.indCurrents[c.id] ?? 0;
           if (dt > 0) {
             // Backward Euler: V_L = (L/dt + R_coil) * I_L - (L/dt) * iPrev
-            const rEff = lHenries / dt + 0.02;
+            const rEff = lHenries / dt + IND_COIL_R;
             const gL = 1 / rEff;
             const vHist = (lHenries / dt) * iPrev;
             stampG(nA, nB, gL);
             // I_L = gL * (Va - Vb) + gL * vHist
             // Norton current flowing from nA -> nB of value gL * vHist
             stampI(nA, nB, gL * vHist);
+          } else if (zeroDtMode === 'holdState') {
+            // Instantaneous t = 0_+ recompute preserving i_L(0_+) = i_L(0_-)
+            stampG(nA, nB, IND_HOLD_G);
+            stampI(nA, nB, iPrev);
           } else {
             // DC Steady State: inductor behaves like small coil resistance 0.02 Ohm
-            stampG(nA, nB, 1 / 0.02);
+            stampG(nA, nB, 1 / IND_COIL_R);
           }
           break;
         }
@@ -1360,6 +1510,8 @@ export function solveCircuitStep(
     const maxPower =
       c.type === 'INF_SOURCE' || c.type === 'INF_RESISTOR'
         ? Number.POSITIVE_INFINITY
+        : c.type === 'LAMP' && c.props.maxPower === undefined
+        ? Math.max(0.05, Number(c.props.ratedPower ?? 1.5)) * 2.5
         : Number(c.props.maxPower ?? spec.maxPower);
     let logicState: number | undefined;
     let extraInfo: string | undefined;
@@ -1439,12 +1591,14 @@ export function solveCircuitStep(
         const vS = pinVoltages.s1 - pinVoltages.s2;
         voltageDrop = vS;
         current = iSecOut;
-        power = Math.max(Math.abs(vS * iSecOut), Math.abs(vP * iPriIn));
+        // Ideal coupled energy transfer VA vs tiny secondary copper dissipation I^2 * R_sec
+        const transferVa = Math.max(Math.abs(vS * iSecOut), Math.abs(vP * iPriIn));
+        power = iSecOut * iSecOut * TRANSFORMER_SEC_R;
         addPinCurrent(c.id, 'p1', iPriIn);
         addPinCurrent(c.id, 'p2', -iPriIn);
         addPinCurrent(c.id, 's1', -iSecOut);
         addPinCurrent(c.id, 's2', iSecOut);
-        extraInfo = `变比 N=${tb.ratio.toFixed(2)} (Vp=${vP.toFixed(2)}V → Vs=${vS.toFixed(2)}V)`;
+        extraInfo = `变比 N=${tb.ratio.toFixed(2)} (Vp=${vP.toFixed(2)}V → Vs=${vS.toFixed(2)}V · 传输 ${transferVa.toFixed(2)} VA)`;
         break;
       }
       case 'CURRENT_SOURCE': {
@@ -1494,22 +1648,39 @@ export function solveCircuitStep(
         if (dt > 0) {
           const prevV = preCapVoltages[c.id] ?? voltageDrop;
           current = (cFarads / dt) * (voltageDrop - prevV);
+        } else if (zeroDtMode === 'holdState') {
+          const prevV = preCapVoltages[c.id] ?? 0;
+          current = CAP_HOLD_G * (voltageDrop - prevV);
         } else {
           current = voltageDrop * 1e-9;
         }
-        power = Math.abs(voltageDrop * current);
+        // Pure capacitive storage exchanges reactive power without active heat dissipation
+        power = 0;
         addPinCurrent(c.id, 'pos', current);
         addPinCurrent(c.id, 'neg', -current);
         const energyMj = 0.5 * cFarads * voltageDrop * voltageDrop * 1e3;
-        extraInfo = `储能 ${energyMj.toFixed(2)} mJ`;
+        const reactiveVa = Math.abs(voltageDrop * current);
+        extraInfo = `储能 ${energyMj.toFixed(2)} mJ · 无功交换 ${reactiveVa.toFixed(2)} VA`;
         break;
       }
       case 'INDUCTOR': {
         voltageDrop = pinVoltages.a - pinVoltages.b;
-        current = simState.indCurrents[c.id] ?? voltageDrop / 0.02;
-        power = Math.abs(voltageDrop * current);
+        const lHenries = Math.max(1e-9, Number(c.props.inductance ?? 100) * 1e-3);
+        const iStored = simState.indCurrents[c.id] ?? 0;
+        if (dt > 0) {
+          current = iStored;
+        } else if (zeroDtMode === 'holdState') {
+          current = iStored + voltageDrop * IND_HOLD_G;
+        } else {
+          current = voltageDrop / IND_COIL_R;
+        }
+        // Dissipative coil copper loss I^2 * R_coil (distinct from magnetic energy exchange |u*i|)
+        power = current * current * IND_COIL_R;
         addPinCurrent(c.id, 'a', current);
         addPinCurrent(c.id, 'b', -current);
+        const energyMj = 0.5 * lHenries * current * current * 1e3;
+        const reactiveVa = Math.abs(voltageDrop * current);
+        extraInfo = `磁能 ${energyMj.toFixed(2)} mJ · 无功交换 ${reactiveVa.toFixed(2)} VA`;
         break;
       }
       case 'SWITCH_SPST': {
@@ -1767,21 +1938,15 @@ export function solveCircuitStep(
       }
     }
 
-    const loadRatio = Number.isFinite(maxPower) && maxPower > 0 ? power / maxPower : 0;
-    const overloaded =
-      (Number.isFinite(maxPower) &&
-        loadRatio > 1.0 &&
-        c.type !== 'DC_SOURCE' &&
-        c.type !== 'AC_SOURCE' &&
-        c.type !== 'INF_SOURCE' &&
-        c.type !== 'INF_RESISTOR' &&
-        c.type !== 'GROUND' &&
-        c.type !== 'VOLTMETER' &&
-        c.type !== 'AMMETER') ||
-      ((c.type === 'DC_SOURCE' || c.type === 'AC_SOURCE') && Math.abs(current) > 8);
+    const { loadRatio, overloaded, warning } = formatComponentOverloadWarning(
+      c,
+      { voltageDrop, current, power },
+      maxPower,
+      false
+    );
 
-    if (overloaded) {
-      warnings.push(`${c.label} 过载/过流 (${power.toFixed(2)}W / 额定 ${maxPower}W)`);
+    if (warning) {
+      warnings.push(warning);
     }
 
     telemetryById[c.id] = {
@@ -1951,4 +2116,158 @@ export function solveCircuitStep(
     converged,
     warnings,
   };
+}
+
+/**
+ * Adaptive sub-stepped simulation driver with exact full-cycle RMS / power-factor integration.
+ * Eliminates aliasing & ripple at 50Hz AC while remaining 100% compatible with DC/transient/digital steps.
+ */
+export function advanceCircuitSimulation(
+  circuit: CircuitData,
+  simState: SimulationRuntimeState,
+  totalDt: number,
+  options?: SolveStepOptions
+): SimulationStepResult {
+  if (!simState.acHistory) {
+    simState.acHistory = [];
+  }
+
+  let maxFreq = 0;
+  let acFreq = 0;
+  for (const c of circuit.components) {
+    if (c.type === 'AC_SOURCE') {
+      const f = Math.max(0.05, Number(c.props.frequency ?? 2));
+      if (f > maxFreq) maxFreq = f;
+      if (acFreq === 0) acFreq = f;
+    } else if (c.type === 'INF_SOURCE' && String(c.props.waveform ?? 'dc') !== 'dc') {
+      const f = Math.max(0.05, Number(c.props.frequency ?? 2));
+      if (f > maxFreq) maxFreq = f;
+      if (acFreq === 0) acFreq = f;
+    } else if (c.type === 'CLOCK') {
+      const f = Math.max(0.1, Number(c.props.frequency ?? 1));
+      if (f > maxFreq) maxFreq = f;
+    }
+  }
+
+  let result: SimulationStepResult;
+  if (totalDt <= 0) {
+    result = solveCircuitStep(circuit, simState, 0, options);
+  } else {
+    const targetSubDt = maxFreq > 0 ? Math.min(0.002, 1 / (240 * maxFreq)) : 0.002;
+    const subSteps = Math.min(320, Math.max(1, Math.ceil(totalDt / targetSubDt)));
+    const h = totalDt / subSteps;
+
+    result = solveCircuitStep(circuit, simState, h, options);
+    const pushSlice = (res: SimulationStepResult) => {
+      const v: Record<string, number> = {};
+      const i: Record<string, number> = {};
+      for (const comp of circuit.components) {
+        const tel = res.telemetryById[comp.id];
+        if (tel) {
+          v[comp.id] = tel.voltageDrop;
+          i[comp.id] = tel.current;
+        }
+      }
+      simState.acHistory.push({ dt: h, v, i });
+    };
+    pushSlice(result);
+
+    for (let step = 1; step < subSteps; step++) {
+      result = solveCircuitStep(circuit, simState, h, options);
+      pushSlice(result);
+    }
+  }
+
+  // Exact integer-cycle weighted RMS & average power windowing (1 full cycle at acFreq)
+  const windowT = acFreq > 0 ? 1 / acFreq : 0.5;
+  const sumV2: Record<string, number> = {};
+  const sumI2: Record<string, number> = {};
+  const sumVI: Record<string, number> = {};
+  let accDt = 0;
+  let trimBefore = 0;
+
+  for (let idx = simState.acHistory.length - 1; idx >= 0; idx--) {
+    const slice = simState.acHistory[idx];
+    const remaining = windowT - accDt;
+    if (remaining <= 1e-12) {
+      trimBefore = idx + 1;
+      break;
+    }
+    const w = Math.min(slice.dt, remaining);
+    accDt += w;
+    for (const cid of Object.keys(slice.v)) {
+      const vv = slice.v[cid] ?? 0;
+      const ii = slice.i[cid] ?? 0;
+      sumV2[cid] = (sumV2[cid] ?? 0) + vv * vv * w;
+      sumI2[cid] = (sumI2[cid] ?? 0) + ii * ii * w;
+      sumVI[cid] = (sumVI[cid] ?? 0) + vv * ii * w;
+    }
+    if (slice.dt >= remaining - 1e-12) {
+      trimBefore = idx;
+      break;
+    }
+  }
+
+  if (trimBefore > 0) {
+    simState.acHistory.splice(0, trimBefore);
+  }
+
+  const hasFullAcCycle = acFreq > 0 && accDt >= 0.9 * (1 / acFreq);
+  const compMap = new Map(circuit.components.map((c) => [c.id, c]));
+  const acWarnings: string[] = [];
+
+  for (const [cid, tel] of Object.entries(result.telemetryById)) {
+    const comp = compMap.get(cid);
+    if (accDt > 1e-9 && sumV2[cid] !== undefined) {
+      const vRms = Math.sqrt(Math.max(0, sumV2[cid] / accDt));
+      const iRms = Math.sqrt(Math.max(0, (sumI2[cid] ?? 0) / accDt));
+      const apparentPower = vRms * iRms;
+      let avgPower = Math.abs((sumVI[cid] ?? 0) / accDt);
+      if (comp?.type === 'CAPACITOR') {
+        avgPower = 0;
+      } else if (comp?.type === 'INDUCTOR') {
+        avgPower = iRms * iRms * IND_COIL_R;
+      }
+      const powerFactor =
+        comp?.type === 'CAPACITOR'
+          ? 0
+          : apparentPower > 1e-7
+          ? Math.min(1, avgPower / apparentPower)
+          : comp?.type === 'INDUCTOR'
+          ? 0
+          : 1;
+      tel.vRms = vRms;
+      tel.iRms = iRms;
+      tel.avgPower = avgPower;
+      tel.apparentPower = apparentPower;
+      tel.powerFactor = powerFactor;
+
+      if (comp?.type === 'LAMP' && hasFullAcCycle) {
+        const pRated = Math.max(0.05, Number(comp.props.ratedPower ?? 1.5));
+        const pct = Math.min(150, (avgPower / pRated) * 100);
+        tel.extraInfo = pct > 2 ? `亮度 ${pct.toFixed(0)}%` : '熄灭';
+      }
+
+      if (comp && hasFullAcCycle) {
+        const evalRes = formatComponentOverloadWarning(comp, tel, tel.maxPower, true);
+        tel.loadRatio = evalRes.loadRatio;
+        tel.overloaded = evalRes.overloaded;
+        if (evalRes.warning) {
+          acWarnings.push(evalRes.warning);
+        }
+      }
+    } else {
+      tel.vRms = Math.abs(tel.voltageDrop);
+      tel.iRms = Math.abs(tel.current);
+      tel.avgPower = tel.power;
+      tel.apparentPower = Math.abs(tel.voltageDrop * tel.current);
+      tel.powerFactor = comp?.type === 'CAPACITOR' ? 0 : 1;
+    }
+  }
+
+  if (hasFullAcCycle) {
+    result.warnings = acWarnings;
+  }
+
+  return result;
 }

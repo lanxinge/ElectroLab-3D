@@ -128,6 +128,7 @@ export interface ComponentMeshHandle {
   pinRings: Map<string, THREE.Mesh>;
   selectionRing: THREE.Mesh;
   overloadRing: THREE.Mesh;
+  highlightRing: THREE.Mesh;
   updateVisuals: (comp: CircuitComponent, telemetry: ComponentTelemetry | undefined, time: number) => void;
 }
 
@@ -228,6 +229,21 @@ export function buildComponentMesh(comp: CircuitComponent): ComponentMeshHandle 
   overloadRing.position.y = 0.02;
   overloadRing.visible = false;
   group.add(overloadRing);
+
+  // Tutorial spotlight highlight ring
+  const highlightRing = new THREE.Mesh(
+    new THREE.RingGeometry(ringRadius + 0.14, ringRadius + 0.25, 44),
+    new THREE.MeshBasicMaterial({
+      color: 0xfbbf24,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.78,
+    })
+  );
+  highlightRing.rotation.x = -Math.PI / 2;
+  highlightRing.position.y = 0.018;
+  highlightRing.visible = false;
+  group.add(highlightRing);
 
   // Add Pins (with miniature PCB copper traces to center)
   for (const pin of pins) {
@@ -952,11 +968,18 @@ export function buildComponentMesh(comp: CircuitComponent): ComponentMeshHandle 
       tagHit(body);
       group.add(body);
 
+      const formatAcTitle = (c: CircuitComponent) => {
+        const amp = Number(c.props.amplitude ?? 5).toFixed(0);
+        const freq = Number(c.props.frequency ?? 2);
+        const ph = Number(c.props.phase ?? 0);
+        return ph !== 0 ? `${amp}V ${freq}Hz ∠${ph}°` : `${Number(c.props.amplitude ?? 5).toFixed(1)}V ${freq}Hz`;
+      };
+
       const screenTitle =
         comp.type === 'DC_SOURCE'
           ? `${Number(comp.props.voltage ?? 5).toFixed(1)} V`
           : comp.type === 'AC_SOURCE'
-          ? `${Number(comp.props.amplitude ?? 5).toFixed(1)}V ${Number(comp.props.frequency ?? 2)}Hz`
+          ? formatAcTitle(comp)
           : `${(Number(comp.props.current ?? 0.02) * 1000).toFixed(0)} mA`;
 
       const { texture, canvas, ctx } = createTextTexture('#020617', '#38bdf8', screenTitle, comp.label);
@@ -975,11 +998,15 @@ export function buildComponentMesh(comp: CircuitComponent): ComponentMeshHandle 
         if (c.type === 'DC_SOURCE') {
           nextTitle = `${Number(c.props.voltage ?? 5).toFixed(1)} V`;
         } else if (c.type === 'AC_SOURCE') {
-          nextTitle = `${Number(c.props.amplitude ?? 5).toFixed(1)}V ${Number(c.props.frequency ?? 2)}Hz`;
+          nextTitle = formatAcTitle(c);
         } else {
           nextTitle = `${(Number(c.props.current ?? 0.02) * 1000).toFixed(1)} mA`;
         }
-        const sub = tel ? `${(tel.current * 1000).toFixed(1)} mA` : c.label;
+        const sub = tel
+          ? c.type === 'AC_SOURCE' && tel.iRms !== undefined
+            ? `${Math.abs(tel.iRms) >= 1 ? `${tel.iRms.toFixed(2)}A~` : `${(tel.iRms * 1000).toFixed(1)}mA~`}`
+            : `${(tel.current * 1000).toFixed(1)} mA`
+          : c.label;
         const key = `${nextTitle}|${sub}`;
         if (key !== lastStr) {
           lastStr = key;
@@ -1041,12 +1068,21 @@ export function buildComponentMesh(comp: CircuitComponent): ComponentMeshHandle 
 
       let lastTxt = '';
       updateVisuals = (c, tel) => {
+        const isRms = c.props.mode === 'rms';
         const valText = isVolt
-          ? `${(tel?.voltageDrop ?? 0).toFixed(2)} V`
+          ? isRms
+            ? `${(tel?.vRms ?? Math.abs(tel?.voltageDrop ?? 0)).toFixed(2)} V~`
+            : `${(tel?.voltageDrop ?? 0).toFixed(2)} V`
+          : isRms
+          ? (() => {
+              const ir = tel?.iRms ?? Math.abs(tel?.current ?? 0);
+              return ir >= 1 ? `${ir.toFixed(2)} A~` : `${(ir * 1000).toFixed(1)} mA~`;
+            })()
           : Math.abs(tel?.current ?? 0) >= 1
           ? `${(tel?.current ?? 0).toFixed(2)} A`
           : `${((tel?.current ?? 0) * 1000).toFixed(1)} mA`;
-        const key = `${valText}|${c.label}`;
+        const subLabel = isRms ? `${c.label} · AC~` : c.label;
+        const key = `${valText}|${subLabel}`;
         if (key !== lastTxt) {
           lastTxt = key;
           drawTextCanvas(
@@ -1056,7 +1092,7 @@ export function buildComponentMesh(comp: CircuitComponent): ComponentMeshHandle 
             '#022c22',
             isVolt ? '#34d399' : '#fbbf24',
             valText,
-            c.label
+            subLabel
           );
         }
       };
@@ -1490,6 +1526,7 @@ export function buildComponentMesh(comp: CircuitComponent): ComponentMeshHandle 
     pinRings,
     selectionRing,
     overloadRing,
+    highlightRing,
     updateVisuals,
   };
 }

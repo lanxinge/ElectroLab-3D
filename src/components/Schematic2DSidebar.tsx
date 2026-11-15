@@ -294,6 +294,7 @@ function renderSymbolBody(
     case 'VOLTMETER':
     case 'AMMETER': {
       const isV = comp.type === 'VOLTMETER';
+      const isRms = comp.props.mode === 'rms';
       return (
         <g>
           <line x1={-40} y1={0} x2={-18} y2={0} stroke={stroke} strokeWidth={2} />
@@ -309,11 +310,11 @@ function renderSymbolBody(
             x={0}
             y={5}
             textAnchor="middle"
-            fontSize={14}
+            fontSize={isRms ? 12 : 14}
             fontWeight="bold"
             fill={isV ? '#34d399' : '#fbbf24'}
           >
-            {isV ? 'V' : 'A'}
+            {isV ? (isRms ? 'V~' : 'V') : isRms ? 'A~' : 'A'}
           </text>
           <line x1={18} y1={0} x2={40} y2={0} stroke={stroke} strokeWidth={2} />
         </g>
@@ -854,6 +855,8 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
   const schematicTheme = useCircuitStore((s) => s.schematicTheme);
   const wiringDraftFrom = useCircuitStore((s) => s.wiringDraftFrom);
   const circuitLoadVersion = useCircuitStore((s) => s.circuitLoadVersion);
+  const highlightedIds = useCircuitStore((s) => s.highlightedIds);
+  const newlyAddedIds = useCircuitStore((s) => s.newlyAddedIds);
 
   const setSelected = useCircuitStore((s) => s.setSelected);
   const moveComponent2D = useCircuitStore((s) => s.moveComponent2D);
@@ -1244,6 +1247,9 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
               if (!spec) return null;
               const tel = telemetryById[c.id];
               const isSel = selected?.kind === 'component' && selected.id === c.id;
+              const isHighlighted = highlightedIds.includes(c.id);
+              const isNew = newlyAddedIds.includes(c.id);
+              const phaseDeg = Number(c.props.phase ?? 0);
               const valueStr =
                 c.type === 'RESISTOR'
                   ? formatEngineeringValue(Number(c.props.resistance ?? 220), 'Ω')
@@ -1258,7 +1264,9 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
                   : c.type === 'DC_SOURCE' || c.type === 'INF_SOURCE'
                   ? `${Number(c.props.voltage ?? (c.type === 'INF_SOURCE' ? 12 : 5))} V`
                   : c.type === 'AC_SOURCE'
-                  ? `${Number(c.props.amplitude ?? 5)}V/${Number(c.props.frequency ?? 2)}Hz`
+                  ? `${Number(c.props.amplitude ?? 5)}V/${Number(c.props.frequency ?? 2)}Hz${
+                      phaseDeg !== 0 ? `∠${phaseDeg}°` : ''
+                    }`
                   : c.type === 'TRANSFORMER'
                   ? `N=${Number(c.props.ratio ?? 2)}`
                   : c.type === 'ZENER_DIODE'
@@ -1269,9 +1277,17 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
                     )}%)`
                   : '';
 
+              const isRms = c.props.mode === 'rms';
               const liveStr =
                 tel && c.type !== 'GROUND' && c.type !== 'LOGIC_IN' && c.type !== 'LOGIC_OUT'
-                  ? `${tel.voltageDrop.toFixed(2)}V · ${(tel.current * 1000).toFixed(1)}mA`
+                  ? c.type === 'VOLTMETER' && isRms
+                    ? `${(tel.vRms ?? Math.abs(tel.voltageDrop)).toFixed(2)}V~`
+                    : c.type === 'AMMETER' && isRms
+                    ? (() => {
+                        const ir = tel.iRms ?? Math.abs(tel.current);
+                        return ir >= 1 ? `${ir.toFixed(2)}A~` : `${(ir * 1000).toFixed(1)}mA~`;
+                      })()
+                    : `${tel.voltageDrop.toFixed(2)}V · ${(tel.current * 1000).toFixed(1)}mA`
                   : '';
 
               return (
@@ -1315,18 +1331,28 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
                     const boxHalfH = Math.max(38, maxPinY + 20);
                     return (
                       <>
-                        {(isSel || tel?.overloaded) && (
+                        {(isSel || tel?.overloaded || isHighlighted) && (
                           <rect
                             x={-boxHalfW}
                             y={-boxHalfH}
                             width={boxHalfW * 2}
                             height={boxHalfH * 2}
                             rx={8}
-                            fill="none"
-                            stroke={tel?.overloaded ? '#ef4444' : '#38bdf8'}
-                            strokeWidth={1.8}
+                            fill={isHighlighted && !isSel && !tel?.overloaded ? 'rgba(251,191,36,0.06)' : 'none'}
+                            stroke={
+                              tel?.overloaded ? '#ef4444' : isHighlighted ? '#fbbf24' : '#38bdf8'
+                            }
+                            strokeWidth={isHighlighted ? 2.1 : 1.8}
                             strokeDasharray="4 3"
                           />
+                        )}
+                        {isNew && (
+                          <g transform={`translate(${boxHalfW - 4}, ${-boxHalfH + 2})`}>
+                            <rect x={-26} y={-8} width={26} height={13} rx={4} fill="#065f46" stroke="#34d399" strokeWidth={0.8} />
+                            <text x={-13} y={1.5} textAnchor="middle" fontSize={8} fontWeight="bold" fill="#a7f3d0">
+                              +新增
+                            </text>
+                          </g>
                         )}
 
                         <g transform={`rotate(${c.rot2d})`}>{renderSymbolBody(c, tel, schematicTheme)}</g>

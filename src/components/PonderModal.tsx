@@ -39,6 +39,7 @@ export const PonderModal: React.FC = () => {
   const activeType = usePonderStore((s) => s.activeType);
   const activeComponentId = usePonderStore((s) => s.activeComponentId);
   const ponderMode = usePonderStore((s) => s.ponderMode);
+  const initialStepIndex = usePonderStore((s) => s.initialStepIndex);
   const openPonder = usePonderStore((s) => s.openPonder);
   const setPonderMode = usePonderStore((s) => s.setPonderMode);
   const closePonder = usePonderStore((s) => s.closePonder);
@@ -146,13 +147,16 @@ export const PonderModal: React.FC = () => {
       initialForStage = { ...freshCtx.initialParams };
     }
 
-    setStepIndex(0);
+    const maxStep = Math.max(0, PONDER_DATA[activeType].steps.length - 1);
+    const startStep = Math.max(0, Math.min(maxStep, initialStepIndex));
+    setStepIndex(startStep);
     setStepProgress(0);
     setIsPlaying(true);
     setCallouts([]);
     setMetrics([]);
     stageRef.current?.loadModule(activeType, initialForStage);
-  }, [modalOpen, activeType, effectiveMode, linkedComp?.id]);
+    stageRef.current?.setStep(startStep);
+  }, [modalOpen, activeType, effectiveMode, linkedComp?.id, initialStepIndex]);
 
   // Push params & playback progress into 3D stage
   useEffect(() => {

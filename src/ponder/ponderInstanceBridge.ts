@@ -582,18 +582,39 @@ export function deriveInstancePonderContext(
     case 'AC_SOURCE': {
       const amp = Number(comp.props.amplitude ?? 5);
       const baseFreq = Number(comp.props.frequency ?? 2);
-      measuredSummary = `${amp}V @ ${baseFreq}Hz, v=${vDrop.toFixed(2)}V`;
+      const phaseDeg = Number(comp.props.phase ?? 0);
+      const vRms = telemetry?.vRms ?? amp / Math.SQRT2;
+      const iRms = telemetry?.iRms;
+      measuredSummary = `${amp}V∠${phaseDeg}° @ ${baseFreq}Hz, V~=${vRms.toFixed(2)}V`;
       if (!isOverridden) {
         liveMetrics.push(
-          { label: '设定参数', value: `${amp}V @ ${baseFreq}Hz`, accent: 'violet' },
-          { label: '实测瞬时电压', value: `${vDrop.toFixed(2)} V`, accent: 'sky' },
-          { label: '实测瞬时电流', value: fmtCurrent(current), accent: 'emerald' }
+          { label: '设定参数', value: `${amp}V∠${phaseDeg}° @ ${baseFreq}Hz`, accent: 'violet' },
+          {
+            label: '有效值 V~ / 瞬时 v',
+            value: `${vRms.toFixed(2)} V~ / ${vDrop.toFixed(2)} V`,
+            accent: 'sky',
+          },
+          {
+            label: iRms !== undefined ? '有效值 I~ / 瞬时 i' : '实测瞬时电流',
+            value:
+              iRms !== undefined
+                ? `${fmtCurrent(iRms)}~ / ${fmtCurrent(current)}`
+                : fmtCurrent(current),
+            accent: 'emerald',
+          }
         );
-        causalExplanation = `交流源 ${comp.label} 设定幅值 ${amp}V、频率 ${baseFreq}Hz（有效值约 ${(
-          amp / Math.SQRT2
-        ).toFixed(2)}V）。当前仿真时刻瞬时端压为 ${vDrop.toFixed(2)}V、电流为 ${fmtCurrent(
+        if (telemetry?.powerFactor !== undefined) {
+          liveMetrics.push({
+            label: '端口有功 P / cosφ',
+            value: `${formatEngineeringValue(Math.abs(telemetry.avgPower ?? 0), 'W')} · ${telemetry.powerFactor.toFixed(2)}`,
+            accent: 'amber',
+          });
+        }
+        causalExplanation = `交流源 ${comp.label} 设定峰值 ${amp}V、频率 ${baseFreq}Hz、初相 ${phaseDeg}°（有效值 ${vRms.toFixed(
+          2
+        )}V）。当前仿真时刻瞬时端压为 ${vDrop.toFixed(2)}V、电流为 ${fmtCurrent(
           current
-        )}，正负半周周期性反向驱动负载。`;
+        )}，按正弦规律周期性输出交变能量。`;
       } else {
         const effF = paramNum(activeParams, 'freq', initialParams.freq);
         liveMetrics.push(
@@ -602,7 +623,7 @@ export function deriveInstancePonderContext(
         );
         causalExplanation = `【交互试算 · 工作台原实测：${measuredSummary}】将信号频率试算调整为 ${effF.toFixed(
           1
-        )} Hz（周期 T = ${(1 / Math.max(0.1, effF)).toFixed(2)} s），峰值仍为 ${amp} V（Vrms ≈ ${(
+        )} Hz（周期 T = ${(1 / Math.max(0.1, effF)).toFixed(2)} s），峰值仍为 ${amp} V∠${phaseDeg}°（Vrms ≈ ${(
           amp / Math.SQRT2
         ).toFixed(2)} V）。`;
         applyPropsPatch = { frequency: Number(effF.toFixed(1)) };
@@ -690,8 +711,22 @@ export function deriveInstancePonderContext(
                 )}。`;
         liveMetrics.push(
           { label: '标称容量 C', value: `${cap} µF`, accent: 'sky' },
-          { label: '实测极板电压 Vc', value: `${vDrop.toFixed(2)} V`, accent: 'amber' },
-          { label: phaseLabel, value: fmtCurrent(current), accent: 'emerald' }
+          {
+            label: '实测极板电压 Vc',
+            value:
+              telemetry?.vRms !== undefined && initialParams.acMode === 1
+                ? `${vDrop.toFixed(2)} V (交流 V~=${telemetry.vRms.toFixed(2)} V)`
+                : `${vDrop.toFixed(2)} V`,
+            accent: 'amber',
+          },
+          {
+            label: phaseLabel,
+            value:
+              telemetry?.iRms !== undefined && initialParams.acMode === 1
+                ? `${fmtCurrent(current)} (I~=${fmtCurrent(telemetry.iRms)})`
+                : fmtCurrent(current),
+            accent: 'emerald',
+          }
         );
         causalExplanation = `${comp.label} (${cap} µF) 当前极板压降 Vc = V(+) - V(-) = ${vDrop.toFixed(
           2
@@ -719,8 +754,22 @@ export function deriveInstancePonderContext(
       if (!isOverridden) {
         liveMetrics.push(
           { label: '标称电感 L', value: `${ind} mH`, accent: 'amber' },
-          { label: '实测电流 I_L', value: fmtCurrent(current), accent: 'emerald' },
-          { label: '实测感应压降 ΔV', value: `${vDrop.toFixed(2)} V`, accent: 'sky' }
+          {
+            label: '实测电流 I_L',
+            value:
+              telemetry?.iRms !== undefined && telemetry.vRms !== undefined
+                ? `${fmtCurrent(current)} (I~=${fmtCurrent(telemetry.iRms)})`
+                : fmtCurrent(current),
+            accent: 'emerald',
+          },
+          {
+            label: '实测感应压降 ΔV',
+            value:
+              telemetry?.vRms !== undefined
+                ? `${vDrop.toFixed(2)} V (V~=${telemetry.vRms.toFixed(2)} V)`
+                : `${vDrop.toFixed(2)} V`,
+            accent: 'sky',
+          }
         );
         causalExplanation = `${comp.label} (${ind} mH) 当前流过电流 ${fmtCurrent(
           current
@@ -1028,8 +1077,15 @@ export function deriveInstancePonderContext(
       if (!isOverridden) {
         liveMetrics.push(
           { label: '设定匝比 k (Ns/Np)', value: `${baseRatio}×`, accent: 'amber' },
-          { label: '实测原边 / 副边', value: `${vPri.toFixed(2)}V / ${vSec.toFixed(2)}V`, accent: 'emerald' }
+          { label: '瞬时原边 / 副边', value: `${vPri.toFixed(2)}V / ${vSec.toFixed(2)}V`, accent: 'emerald' }
         );
+        if (telemetry?.vRms !== undefined) {
+          liveMetrics.push({
+            label: '原边交流有效值 V1~',
+            value: `${telemetry.vRms.toFixed(2)} V~ (副边约 ${(telemetry.vRms * baseRatio).toFixed(2)} V~)`,
+            accent: 'sky',
+          });
+        }
         causalExplanation = `${comp.label} 匝数比 Ns:Np = ${baseRatio}，当前原边实测瞬时电压 ${vPri.toFixed(
           2
         )}V 经铁芯互感在副边感应出 ${vSec.toFixed(2)}V 电压，能量按比例向副边负载传递。`;
@@ -1128,15 +1184,21 @@ export function deriveInstancePonderContext(
     }
 
     case 'VOLTMETER': {
-      measuredSummary = `V=${vDrop.toFixed(3)}V`;
+      const isRmsMode = comp.props.mode === 'rms' && telemetry?.vRms !== undefined;
+      const dispV = isRmsMode ? telemetry!.vRms! : vDrop;
+      measuredSummary = isRmsMode ? `V~=${dispV.toFixed(2)}V` : `V=${vDrop.toFixed(3)}V`;
       if (!isOverridden) {
         liveMetrics.push(
-          { label: '实测电压 V', value: `${vDrop.toFixed(3)} V`, accent: 'sky' },
+          {
+            label: isRmsMode ? '交流有效值 V~' : '实测电压 V',
+            value: isRmsMode ? `${dispV.toFixed(2)} V~ (瞬时 ${vDrop.toFixed(2)} V)` : `${vDrop.toFixed(3)} V`,
+            accent: 'sky',
+          },
           { label: '分流电流', value: fmtCurrent(current), accent: 'emerald' }
         );
-        causalExplanation = `${comp.label} 以高达 10MΩ 内阻跨接测得两点电位差 ${vDrop.toFixed(
-          3
-        )} V（+端 ${pinV(telemetry, 'pos').toFixed(2)}V，-端 ${pinV(telemetry, 'neg').toFixed(
+        causalExplanation = `${comp.label} 以高达 10MΩ 内阻跨接测得两点${
+          isRmsMode ? `交流有效值电压 ${dispV.toFixed(2)} V~` : `电位差 ${vDrop.toFixed(3)} V`
+        }（+端 ${pinV(telemetry, 'pos').toFixed(2)}V，-端 ${pinV(telemetry, 'neg').toFixed(
           2
         )}V），几乎不抽取原电路电流。`;
       } else {
@@ -1155,15 +1217,21 @@ export function deriveInstancePonderContext(
     }
 
     case 'AMMETER': {
-      measuredSummary = `I=${fmtCurrent(current)}`;
+      const isRmsMode = comp.props.mode === 'rms' && telemetry?.iRms !== undefined;
+      const dispI = isRmsMode ? telemetry!.iRms! : current;
+      measuredSummary = isRmsMode ? `I~=${fmtCurrent(dispI)}` : `I=${fmtCurrent(current)}`;
       if (!isOverridden) {
         liveMetrics.push(
-          { label: '实测电流 I', value: fmtCurrent(current), accent: 'emerald' },
+          {
+            label: isRmsMode ? '交流有效值 I~' : '实测电流 I',
+            value: isRmsMode ? `${fmtCurrent(dispI)}~ (瞬时 ${fmtCurrent(current)})` : fmtCurrent(current),
+            accent: 'emerald',
+          },
           { label: '表头压降', value: `${(vDrop * 1000).toFixed(2)} mV`, accent: 'amber' }
         );
-        causalExplanation = `${comp.label} 串联在被测支路中实时测得电流 ${fmtCurrent(
-          current
-        )}；自身仅产生 ${Math.abs(vDrop * 1000).toFixed(2)} mV 微小压降，不干扰主回路工况。`;
+        causalExplanation = `${comp.label} 串联在被测支路中实时测得${
+          isRmsMode ? `交流有效值电流 ${fmtCurrent(dispI)}~` : `电流 ${fmtCurrent(current)}`
+        }；自身仅产生 ${Math.abs(vDrop * 1000).toFixed(2)} mV 微小压降，不干扰主回路工况。`;
       } else {
         const r = Math.max(1, paramNum(activeParams, 'loadOhms', 200));
         const estI = 5 / r;

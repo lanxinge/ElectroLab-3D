@@ -1,11 +1,13 @@
 import React, { useRef, useState } from 'react';
 import {
+  ArrowLeft,
   BookOpen,
   Check,
   Cpu,
   Download,
   FolderOpen,
   FolderUp,
+  GraduationCap,
   LayoutGrid,
   LogIn,
   LogOut,
@@ -22,12 +24,41 @@ import {
 import { CIRCUIT_PRESETS } from '../presets/circuitPresets';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircuitStore, type SidebarMode } from '../store/useCircuitStore';
+import { useTutorialStore } from '../store/useTutorialStore';
 import { useUIStore } from '../store/useUIStore';
+import { getLessonById } from '../tutorial/curriculumIndex';
 import { downloadProjectFile, parseProjectFile } from '../utils/projectFileIO';
 
+const TutorialHeaderStatus: React.FC<{ onExit: () => void }> = ({ onExit }) => {
+  const currentLessonId = useTutorialStore((s) => s.currentLessonId);
+  const currentStageIndex = useTutorialStore((s) => s.currentStageIndex);
+  const lesson = getLessonById(currentLessonId);
+  const stage = lesson.stages[currentStageIndex] ?? lesson.stages[0];
+
+  return (
+    <div className="hidden md:flex items-center gap-2 text-xs min-w-0">
+      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 min-w-0">
+        <GraduationCap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+        <span className="truncate max-w-[300px]">
+          第{lesson.lessonNumber}课 · {lesson.title} ({stage?.badge ?? `Step ${currentStageIndex + 1}`})
+        </span>
+      </div>
+      <button
+        type="button"
+        data-testid="exit-tutorial-btn"
+        onClick={onExit}
+        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shrink-0"
+      >
+        <ArrowLeft className="w-3.5 h-3.5 text-sky-400" />
+        返回自由仿真台
+      </button>
+    </div>
+  );
+};
+
 export const HeaderBar: React.FC<{
-  activeView: 'simulator' | 'forum';
-  onChangeView: (v: 'simulator' | 'forum') => void;
+  activeView: 'simulator' | 'tutorial' | 'forum';
+  onChangeView: (v: 'simulator' | 'tutorial' | 'forum') => void;
   onOpenAuth: () => void;
   onOpenPublish: () => void;
   onOpenProjects: () => void;
@@ -96,7 +127,7 @@ export const HeaderBar: React.FC<{
   return (
     <header className="h-12 px-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 z-30 whitespace-nowrap">
       {/* Brand + Primary Navigation */}
-      <div className="flex items-center gap-2.5 min-w-0">
+      <div className="flex items-center gap-2 shrink-0">
         <div className="flex items-center gap-2 shrink-0">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center text-slate-950 font-black text-xs shadow">
             <Cpu className="w-4 h-4" />
@@ -110,7 +141,7 @@ export const HeaderBar: React.FC<{
         <nav className="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-xs shrink-0">
           <button
             onClick={() => onChangeView('simulator')}
-            className={`px-2.5 py-1 rounded-md font-medium transition whitespace-nowrap ${
+            className={`px-2 py-1 rounded-md font-medium transition whitespace-nowrap ${
               activeView === 'simulator'
                 ? 'bg-sky-500 text-slate-950 font-semibold'
                 : 'text-slate-400 hover:text-slate-100'
@@ -119,8 +150,20 @@ export const HeaderBar: React.FC<{
             3D/2D 仿真台
           </button>
           <button
+            data-testid="nav-tutorial-btn"
+            onClick={() => onChangeView('tutorial')}
+            className={`flex items-center gap-1 px-2 py-1 rounded-md font-medium transition whitespace-nowrap ${
+              activeView === 'tutorial'
+                ? 'bg-amber-400 text-slate-950 font-semibold'
+                : 'text-slate-400 hover:text-amber-200'
+            }`}
+          >
+            <GraduationCap className="w-3.5 h-3.5" />
+            教学模式
+          </button>
+          <button
             onClick={() => onChangeView('forum')}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-md font-medium transition whitespace-nowrap ${
+            className={`flex items-center gap-1 px-2 py-1 rounded-md font-medium transition whitespace-nowrap ${
               activeView === 'forum'
                 ? 'bg-sky-500 text-slate-950 font-semibold'
                 : 'text-slate-400 hover:text-slate-100'
@@ -172,10 +215,10 @@ export const HeaderBar: React.FC<{
           <div className="relative">
             <button
               onClick={() => setPresetsOpen((o) => !o)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-100 border border-slate-700 whitespace-nowrap"
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-100 border border-slate-700 whitespace-nowrap"
             >
               <BookOpen className="w-3.5 h-3.5 text-sky-400" />
-              经典实验范例
+              <span className="hidden 2xl:inline">经典实验</span>范例
             </button>
             {presetsOpen && (
               <div
@@ -354,7 +397,7 @@ export const HeaderBar: React.FC<{
             className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs"
           >
             <Download className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden xl:inline">导出</span>
+            <span className="hidden 2xl:inline">导出</span>
           </button>
           <button
             type="button"
@@ -364,7 +407,7 @@ export const HeaderBar: React.FC<{
             className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs"
           >
             <FolderUp className="w-3.5 h-3.5 text-sky-400" />
-            <span className="hidden xl:inline">导入</span>
+            <span className="hidden 2xl:inline">导入</span>
           </button>
           <button
             type="button"
@@ -374,10 +417,13 @@ export const HeaderBar: React.FC<{
             className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-fuchsia-600/25 hover:bg-fuchsia-600/40 text-fuchsia-200 border border-fuchsia-500/40 text-xs"
           >
             <PackagePlus className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">打包IC</span>
+            <span className="hidden 2xl:inline">打包IC</span>
           </button>
         </div>
       )}
+
+      {/* Tutorial Middle Breadcrumb */}
+      {activeView === 'tutorial' && <TutorialHeaderStatus onExit={() => onChangeView('simulator')} />}
 
       {fileNotice && (
         <div

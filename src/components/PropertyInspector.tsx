@@ -169,7 +169,7 @@ export const PropertyInspector: React.FC<{ compact?: boolean }> = ({ compact = t
                 <option value="square">方波 (Square)</option>
               </select>
             </div>
-            <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+            <div className="grid grid-cols-4 gap-1.5 text-[11px]">
               <label>
                 <span className="text-slate-400 block">幅值(V)</span>
                 <input
@@ -192,6 +192,18 @@ export const PropertyInspector: React.FC<{ compact?: boolean }> = ({ compact = t
                 />
               </label>
               <label>
+                <span className="text-slate-400 block">初相(°)</span>
+                <input
+                  type="number"
+                  min={-180}
+                  max={180}
+                  step={15}
+                  value={Number(comp.props.phase ?? 0)}
+                  onChange={(e) => updateComponentProp(comp.id, 'phase', Number(e.target.value))}
+                  className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 font-mono"
+                />
+              </label>
+              <label>
                 <span className="text-slate-400 block">偏置(V)</span>
                 <input
                   type="number"
@@ -201,6 +213,53 @@ export const PropertyInspector: React.FC<{ compact?: boolean }> = ({ compact = t
                   className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 font-mono"
                 />
               </label>
+            </div>
+            <div className="flex items-center gap-1 text-[10px]">
+              <span className="text-slate-400">三相快捷角:</span>
+              {[0, -120, 120].map((deg) => (
+                <button
+                  key={deg}
+                  type="button"
+                  onClick={() => updateComponentProp(comp.id, 'phase', deg)}
+                  className={`px-1.5 py-0.5 rounded border font-mono ${
+                    Number(comp.props.phase ?? 0) === deg
+                      ? 'bg-sky-500/20 border-sky-400 text-sky-200'
+                      : 'bg-slate-900 border-slate-700 text-slate-400'
+                  }`}
+                >
+                  {deg > 0 ? `+${deg}°` : `${deg}°`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {(comp.type === 'VOLTMETER' || comp.type === 'AMMETER') && (
+          <div className="space-y-1.5">
+            <div className="text-[11px] text-slate-400">测量挡位:</div>
+            <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => updateComponentProp(comp.id, 'mode', 'dc')}
+                className={`py-1 rounded border font-medium transition ${
+                  comp.props.mode !== 'rms'
+                    ? 'bg-sky-500/20 border-sky-400/70 text-sky-200'
+                    : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                直流 / 瞬时挡 (DC)
+              </button>
+              <button
+                type="button"
+                onClick={() => updateComponentProp(comp.id, 'mode', 'rms')}
+                className={`py-1 rounded border font-medium transition ${
+                  comp.props.mode === 'rms'
+                    ? 'bg-emerald-500/20 border-emerald-400/70 text-emerald-200'
+                    : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                交流有效值挡 (AC~)
+              </button>
             </div>
           </div>
         )}
@@ -271,35 +330,65 @@ export const PropertyInspector: React.FC<{ compact?: boolean }> = ({ compact = t
         )}
 
         {comp.type === 'CAPACITOR' && (
-          <label className="flex items-center justify-between text-[11px]">
-            <span className="text-slate-400">电容量 (µF):</span>
-            <input
-              type="number"
-              min={1}
-              step={10}
-              value={Number(comp.props.capacitance ?? 100)}
-              onChange={(e) =>
-                updateComponentProp(comp.id, 'capacitance', Math.max(0.1, Number(e.target.value)))
-              }
-              className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-right"
-            />
-          </label>
+          <div className="space-y-1.5">
+            <label className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">电容量 (µF):</span>
+              <input
+                type="number"
+                min={1}
+                step={10}
+                value={Number(comp.props.capacitance ?? 100)}
+                onChange={(e) =>
+                  updateComponentProp(comp.id, 'capacitance', Math.max(0.1, Number(e.target.value)))
+                }
+                className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-right"
+              />
+            </label>
+            <label className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">额定耐压 (V):</span>
+              <input
+                type="number"
+                min={5}
+                step={25}
+                value={Number(comp.props.maxVoltage ?? 450)}
+                onChange={(e) =>
+                  updateComponentProp(comp.id, 'maxVoltage', Math.max(1, Number(e.target.value)))
+                }
+                className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-right"
+              />
+            </label>
+          </div>
         )}
 
         {comp.type === 'INDUCTOR' && (
-          <label className="flex items-center justify-between text-[11px]">
-            <span className="text-slate-400">电感量 (mH):</span>
-            <input
-              type="number"
-              min={1}
-              step={10}
-              value={Number(comp.props.inductance ?? 100)}
-              onChange={(e) =>
-                updateComponentProp(comp.id, 'inductance', Math.max(0.1, Number(e.target.value)))
-              }
-              className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-right"
-            />
-          </label>
+          <div className="space-y-1.5">
+            <label className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">电感量 (mH):</span>
+              <input
+                type="number"
+                min={1}
+                step={10}
+                value={Number(comp.props.inductance ?? 100)}
+                onChange={(e) =>
+                  updateComponentProp(comp.id, 'inductance', Math.max(0.1, Number(e.target.value)))
+                }
+                className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-right"
+              />
+            </label>
+            <label className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">额定载流 (A):</span>
+              <input
+                type="number"
+                min={0.5}
+                step={0.5}
+                value={Number(comp.props.maxCurrent ?? 8)}
+                onChange={(e) =>
+                  updateComponentProp(comp.id, 'maxCurrent', Math.max(0.1, Number(e.target.value)))
+                }
+                className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-right"
+              />
+            </label>
+          </div>
         )}
 
         {(comp.type === 'SWITCH_SPST' || comp.type === 'SWITCH_SPDT' || comp.type === 'LOGIC_IN' || comp.type === 'IC_PORT_IN') && (
@@ -711,16 +800,56 @@ export const PropertyInspector: React.FC<{ compact?: boolean }> = ({ compact = t
               </div>
             </div>
             <div className="bg-slate-900 rounded p-1">
-              <div className="text-[10px] text-slate-500">功耗 P</div>
+              <div className="text-[10px] text-slate-500">
+                {comp.type === 'CAPACITOR' || comp.type === 'INDUCTOR' || comp.type === 'TRANSFORMER'
+                  ? '热损耗 P'
+                  : '功耗 P'}
+              </div>
               <div className="text-xs text-amber-300 font-semibold">
                 {formatEngineeringValue(tel.power, 'W')}
               </div>
             </div>
           </div>
 
+          {tel.vRms !== undefined &&
+            comp.type !== 'GROUND' &&
+            (comp.props.mode === 'rms' ||
+              components.some(
+                (x) =>
+                  x.type === 'AC_SOURCE' ||
+                  (x.type === 'INF_SOURCE' && String(x.props.waveform ?? 'dc') !== 'dc')
+              )) && (
+              <div className="grid grid-cols-2 gap-1 text-center font-mono text-[10px]">
+                <div className="bg-slate-900/90 rounded px-1.5 py-1 border border-slate-800/80">
+                  <span className="text-slate-400 mr-1">有效值:</span>
+                  <span className="text-cyan-300 font-semibold">
+                    {tel.vRms.toFixed(2)}V~ ·{' '}
+                    {(tel.iRms ?? 0) >= 1
+                      ? `${(tel.iRms ?? 0).toFixed(2)}A~`
+                      : `${((tel.iRms ?? 0) * 1000).toFixed(1)}mA~`}
+                  </span>
+                </div>
+                <div className="bg-slate-900/90 rounded px-1.5 py-1 border border-slate-800/80">
+                  <span className="text-slate-400 mr-1">有功/cosφ:</span>
+                  <span className="text-amber-200 font-semibold">
+                    {formatEngineeringValue(tel.avgPower ?? tel.power, 'W')} ·{' '}
+                    {(tel.powerFactor ?? 1).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            )}
+
           <div>
             <div className="flex justify-between text-[10px] mb-0.5">
-              <span className="text-slate-400">负载率 ({tel.power.toFixed(3)}W / {tel.maxPower}W)</span>
+              <span className="text-slate-400">
+                {comp.type === 'CAPACITOR'
+                  ? `耐压裕度 (${Math.abs(tel.vRms !== undefined ? Math.max(Math.abs(tel.voltageDrop), tel.vRms * Math.SQRT2) : tel.voltageDrop).toFixed(1)}V / ${Number(comp.props.maxVoltage ?? 450)}V)`
+                  : comp.type === 'INDUCTOR'
+                  ? `电流负载 (${(tel.iRms ?? Math.abs(tel.current)).toFixed(2)}A / ${Number(comp.props.maxCurrent ?? 8)}A · 铜耗 ${tel.power.toFixed(3)}W)`
+                  : comp.type === 'TRANSFORMER'
+                  ? `副边负载 (${(tel.iRms ?? Math.abs(tel.current)).toFixed(2)}A / ${Number(comp.props.maxCurrent ?? 15)}A)`
+                  : `负载率 (${tel.power.toFixed(3)}W / ${tel.maxPower}W)`}
+              </span>
               <span className={tel.overloaded ? 'text-red-400 font-bold' : 'text-slate-300'}>
                 {loadPct}%
               </span>

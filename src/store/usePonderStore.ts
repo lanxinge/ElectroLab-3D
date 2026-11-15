@@ -22,11 +22,12 @@ interface PonderStoreState {
   activeType: ComponentType | null;
   activeComponentId: string | null;
   ponderMode: PonderDisplayMode;
+  initialStepIndex: number;
 
   setHoveredTarget: (target: HoverHintPayload | null) => void;
   clearHoverIfSource: (source: PonderSource) => void;
   setPopupHovered: (hovered: boolean) => void;
-  openPonder: (type: ComponentType, componentId?: string | null) => void;
+  openPonder: (type: ComponentType, componentId?: string | null, stepIndex?: number) => void;
   setPonderMode: (mode: PonderDisplayMode) => void;
   closePonder: () => void;
 }
@@ -43,6 +44,7 @@ export const usePonderStore = create<PonderStoreState>((set, get) => ({
   activeType: null,
   activeComponentId: null,
   ponderMode: 'standard',
+  initialStepIndex: 0,
 
   setHoveredTarget: (payload) => {
     const prev = get().hoveredTarget;
@@ -89,12 +91,13 @@ export const usePonderStore = create<PonderStoreState>((set, get) => ({
     set({ isPopupHovered: hovered });
   },
 
-  openPonder: (type, componentId = null) => {
+  openPonder: (type, componentId = null, stepIndex = 0) => {
     set({
       modalOpen: true,
       activeType: type,
       activeComponentId: componentId ?? null,
       ponderMode: componentId ? 'instance' : 'standard',
+      initialStepIndex: Math.max(0, Math.floor(stepIndex)),
       hoveredTarget: null,
       isPopupHovered: false,
     });

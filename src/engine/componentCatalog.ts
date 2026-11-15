@@ -62,8 +62,8 @@ export const COMPONENT_CATALOG: Record<ComponentType, ComponentSpec> = {
     name: '交流信号发生器',
     shortName: '交流源',
     labelPrefix: 'Vs',
-    description: '正弦/方波交流信号源，可调幅值、频率与直流偏置',
-    defaultProps: { amplitude: 5, frequency: 2, dcOffset: 0, waveform: 'sine' },
+    description: '正弦/方波交流信号源，可调幅值、频率、初相角与直流偏置',
+    defaultProps: { amplitude: 5, frequency: 2, phase: 0, dcOffset: 0, waveform: 'sine' },
     maxPower: 50,
     pins: [
       { id: 'pos', label: '+', role: 'pos', offset3d: [0.9, 0.12, 0], offset2d: { x: 40, y: 0 } },
@@ -132,8 +132,8 @@ export const COMPONENT_CATALOG: Record<ComponentType, ComponentSpec> = {
     name: '电解/薄膜电容',
     shortName: '电容',
     labelPrefix: 'C',
-    description: '储能与滤波电容（支持一阶/高阶 RC/RLC 暂态充放电仿真）',
-    defaultProps: { capacitance: 100 }, // uF
+    description: '储能与滤波电容（支持一阶/高阶 RC/RLC 暂态充放电与交流容抗仿真，额定耐压 450V）',
+    defaultProps: { capacitance: 100, maxVoltage: 450 }, // uF, V
     maxPower: 5,
     pins: [
       { id: 'pos', label: '+', role: 'pos', offset3d: [-0.75, 0.12, 0], offset2d: { x: -40, y: 0 } },
@@ -146,8 +146,8 @@ export const COMPONENT_CATALOG: Record<ComponentType, ComponentSpec> = {
     name: '漆包线电感',
     shortName: '电感',
     labelPrefix: 'L',
-    description: '磁通储能线圈（mH 级，支持 RL/RLC 暂态响应仿真）',
-    defaultProps: { inductance: 100 }, // mH
+    description: '磁通储能线圈（mH 级，含 0.02Ω 线圈铜阻，支持 RL/RLC 暂态与交流感抗仿真，额定载流 8A）',
+    defaultProps: { inductance: 100, maxCurrent: 8 }, // mH, A
     maxPower: 5,
     pins: [
       { id: 'a', label: '1', role: 'passive', offset3d: [-0.9, 0.12, 0], offset2d: { x: -40, y: 0 } },
@@ -247,8 +247,8 @@ export const COMPONENT_CATALOG: Record<ComponentType, ComponentSpec> = {
     name: '数字电压表',
     shortName: '电压表',
     labelPrefix: 'PV',
-    description: '高内阻 (10 MΩ) 直流/瞬时电压表，3D 屏幕实时刷新读数',
-    defaultProps: {},
+    description: '高内阻 (10 MΩ) 直流/交流有效值双挡电压表，3D 屏幕实时刷新读数',
+    defaultProps: { mode: 'dc' },
     maxPower: 10,
     pins: [
       { id: 'pos', label: '+', role: 'pos', offset3d: [-0.85, 0.12, 0], offset2d: { x: -40, y: 0 } },
@@ -261,8 +261,8 @@ export const COMPONENT_CATALOG: Record<ComponentType, ComponentSpec> = {
     name: '数字电流表',
     shortName: '电流表',
     labelPrefix: 'PA',
-    description: '低内阻 (0.005 Ω) 串联电流表，3D 屏幕实时显示 mA/A',
-    defaultProps: {},
+    description: '低内阻 (0.005 Ω) 直流/交流有效值双挡电流表，3D 屏幕实时显示 mA/A',
+    defaultProps: { mode: 'dc' },
     maxPower: 50,
     pins: [
       { id: 'pos', label: '+', role: 'pos', offset3d: [-0.85, 0.12, 0], offset2d: { x: -40, y: 0 } },
@@ -564,7 +564,7 @@ export const COMPONENT_CATALOG: Record<ComponentType, ComponentSpec> = {
     shortName: '变压器',
     labelPrefix: 'T',
     description: '原副边按变比 N = Ns/Np 磁耦合（Vs = N·Vp，Ip = -N·Is）',
-    defaultProps: { ratio: 2.0 },
+    defaultProps: { ratio: 2.0, maxCurrent: 15 },
     maxPower: 50,
     pins: [
       { id: 'p1', label: 'P1*', role: 'pos', offset3d: [-1.0, 0.12, -0.35], offset2d: { x: -45, y: -20 } },

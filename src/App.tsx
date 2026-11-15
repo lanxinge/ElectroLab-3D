@@ -21,10 +21,12 @@ import { PonderModal } from './components/PonderModal';
 import { FloatingPanelOrb } from './components/FloatingPanelOrb';
 import { TruthChipEditorModal } from './components/TruthChipEditorModal';
 import { PackageIcModal } from './components/PackageIcModal';
+import { TutorialWorkspace } from './components/TutorialWorkspace';
+import { useTutorialStore } from './store/useTutorialStore';
 import { parseProjectFile } from './utils/projectFileIO';
 
 export function App() {
-  const [activeView, setActiveView] = useState<'simulator' | 'forum'>('simulator');
+  const [activeView, setActiveView] = useState<'simulator' | 'tutorial' | 'forum'>('simulator');
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [showProjectsModal, setShowProjectsModal] = useState(false);
@@ -61,8 +63,18 @@ export function App() {
   const splitInspectorHeight = useUIStore((s) => s.splitInspectorHeight);
   const setSplitInspectorHeight = useUIStore((s) => s.setSplitInspectorHeight);
 
-  // Independent simulation runner: keeps time & waveforms advancing in 2d-only mode too
-  useSimulationRunner(activeView === 'simulator');
+  // Independent simulation runner: keeps time & waveforms advancing in 2d-only and tutorial modes too
+  useSimulationRunner(activeView === 'simulator' || activeView === 'tutorial');
+
+  const handleChangeView = (nextView: 'simulator' | 'tutorial' | 'forum') => {
+    if (nextView === activeView) return;
+    if (nextView === 'tutorial') {
+      useTutorialStore.getState().enterTutorial();
+    } else if (activeView === 'tutorial') {
+      useTutorialStore.getState().exitTutorial(false);
+    }
+    setActiveView(nextView);
+  };
 
   const startResize = (
     e: React.PointerEvent,
@@ -123,16 +135,23 @@ export function App() {
     <div className="h-screen w-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden">
       <HeaderBar
         activeView={activeView}
-        onChangeView={setActiveView}
+        onChangeView={handleChangeView}
         onOpenAuth={() => setShowAuthModal(true)}
         onOpenPublish={() => setShowPublishModal(true)}
         onOpenProjects={() => setShowProjectsModal(true)}
       />
 
-      {activeView === 'forum' ? (
+      {activeView === 'tutorial' ? (
+        <TutorialWorkspace
+          onExitToSimulator={(keep) => {
+            useTutorialStore.getState().exitTutorial(keep);
+            setActiveView('simulator');
+          }}
+        />
+      ) : activeView === 'forum' ? (
         <ForumView
           refreshTrigger={forumRefreshTrigger}
-          onForkToSimulator={() => setActiveView('simulator')}
+          onForkToSimulator={() => handleChangeView('simulator')}
           onOpenPublish={() => setShowPublishModal(true)}
           onOpenAuth={() => setShowAuthModal(true)}
         />

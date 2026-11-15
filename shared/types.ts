@@ -108,6 +108,16 @@ export interface ComponentTelemetry {
   overloaded: boolean;
   logicState?: number;
   extraInfo?: string;
+  /** Periodic AC steady-state RMS voltage (V) */
+  vRms?: number;
+  /** Periodic AC steady-state RMS current (A) */
+  iRms?: number;
+  /** Periodic average active power |1/T ∫ u·i dt| (W) */
+  avgPower?: number;
+  /** Apparent power S = Urms * Irms (VA) */
+  apparentPower?: number;
+  /** Power factor cosφ = P / S in [0, 1] */
+  powerFactor?: number;
 }
 
 export interface WireTelemetry {
