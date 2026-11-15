@@ -425,4 +425,92 @@ describe('ElectroLab 3D Zero-Foundation Curriculum (Vol. 1 + Vol. 2)', () => {
       useTutorialStore.getState().exitTutorial(false);
     }
   });
+
+  it('supports repeatable 555 monostable autoDemo, real waveform period checks, oscilloscope defaults, and accurate Ch14 naming', () => {
+    try {
+      // 1. Repeatable 555 monostable autoDemo (l24-s2) + latched stage completion vs live status
+      useTutorialStore.getState().enterTutorial('ch13-timer-555-pulse-circuits', 1); // l24-s2
+      const l24s2 = getLessonById('ch13-timer-555-pulse-circuits').stages[1];
+      expect(l24s2.preferredAnalysisTab).toBe('telemetry');
+      expect(l24s2.scopeChannels?.length).toBeGreaterThan(0);
+
+      // Run #1: fresh trigger succeeds
+      expect(useTutorialStore.getState().runCheckpointAutoDemo()).toBe(true);
+      expect(useCircuitStore.getState().telemetryById['vm_out']?.voltageDrop ?? 0).toBeGreaterThan(4.2);
+      expect(useTutorialStore.getState().completedStageIds).toContain('l24-s2');
+
+      // Advance past 1.1s pulse timeout -> live condition turns false, while completedStageIds remains latched
+      for (let i = 0; i < 80; i++) useCircuitStore.getState().stepOnce(0.02);
+      expect(useCircuitStore.getState().telemetryById['vm_out']?.voltageDrop ?? 9).toBeLessThan(0.5);
+      expect(l24s2.checkpoint!.check(buildTutorialEvalContext(l24s2)).passed).toBe(false);
+      expect(useTutorialStore.getState().completedStageIds).toContain('l24-s2');
+
+      // Run #2: clicking autoDemo AFTER pulse ended resets, waits, and re-triggers cleanly
+      expect(useTutorialStore.getState().runCheckpointAutoDemo()).toBe(true);
+      expect(useCircuitStore.getState().telemetryById['vm_out']?.voltageDrop ?? 0).toBeGreaterThan(4.2);
+
+      // Run #3: clicking autoDemo MID-PULSE still resets and cleanly triggers another full pulse
+      for (let i = 0; i < 15; i++) useCircuitStore.getState().stepOnce(0.02);
+      expect(useTutorialStore.getState().runCheckpointAutoDemo()).toBe(true);
+      expect(useCircuitStore.getState().telemetryById['vm_out']?.voltageDrop ?? 0).toBeGreaterThan(4.2);
+
+      // 2. 555 Astable (l24-s3) measures real waveform period & frequency rather than formula alone
+      useTutorialStore.getState().enterTutorial('ch13-timer-555-pulse-circuits', 2); // l24-s3
+      const l24s3 = getLessonById('ch13-timer-555-pulse-circuits').stages[2];
+      expect(l24s3.preferredAnalysisTab).toBe('telemetry');
+      expect(l24s3.scopeChannels).toEqual(['vm_out', 'vm_ct']);
+
+      const ctxDefault = buildTutorialEvalContext(l24s3);
+      const wfDefault = ctxDefault.waveformStatsById?.vm_out;
+      expect(wfDefault?.cycleCount).toBeGreaterThanOrEqual(1);
+      expect(wfDefault?.frequencyHz ?? 0).toBeGreaterThan(1.2);
+      expect(wfDefault?.frequencyHz ?? 0).toBeLessThan(1.38); // ~1.31Hz vs 1.39Hz ideal
+      const fEvalDefault = l24s3.liveFormulas[0].evaluate(ctxDefault);
+      expect(fEvalDefault.expression).toContain('1.39 Hz');
+      expect(fEvalDefault.result).toMatch(/1\.3\d Hz/);
+      expect(l24s3.checkpoint!.check(ctxDefault).passed).toBe(false);
+
+      // Changing RB clears previous cycle measurements so formula alone cannot pass immediately
+      useCircuitStore.getState().updateComponentProp('rb', 'resistance', 10000);
+      const ctxImmediate = buildTutorialEvalContext(l24s3);
+      expect(ctxImmediate.waveformStatsById?.vm_out).toBeUndefined();
+      expect(l24s3.checkpoint!.check(ctxImmediate).passed).toBe(false);
+
+      // Running autoDemo measures actual output edges (~4.59Hz vs 4.81Hz ideal) and passes
+      expect(useTutorialStore.getState().runCheckpointAutoDemo()).toBe(true);
+      const ctxFast = buildTutorialEvalContext(l24s3);
+      const wfFast = ctxFast.waveformStatsById?.vm_out;
+      expect(wfFast?.cycleCount).toBeGreaterThanOrEqual(2);
+      expect(wfFast?.frequencyHz ?? 0).toBeGreaterThan(4.4);
+      expect(wfFast?.frequencyHz ?? 0).toBeLessThan(4.78);
+      const fEvalFast = l24s3.liveFormulas[0].evaluate(ctxFast);
+      expect(fEvalFast.expression).toContain('4.81 Hz');
+      expect(fEvalFast.result).toMatch(/4\.[456]\d Hz/);
+
+      // 3. Oscilloscope default tab & non-empty channels for all 555, DAC, and JK divide-by-2 lessons
+      const oscStages = [
+        ...getLessonById('ch13-timer-555-pulse-circuits').stages,
+        ...getLessonById('ch13-dac-conversion').stages,
+        getLessonById('ch12-flipflops-and-counters').stages[1],
+      ];
+      for (const st of oscStages) {
+        expect(st.preferredAnalysisTab, `${st.id} opens oscilloscope`).toBe('telemetry');
+        expect(st.scopeChannels?.length ?? 0, `${st.id} has scope channels`).toBeGreaterThan(0);
+      }
+
+      // 4. Accurate Chapter 14 naming ('闪速／并行 ADC' & '温控联锁')
+      const ch14 = TUTORIAL_CHAPTERS.find((c) => c.id === 'ch14')!;
+      const l26 = getLessonById('ch14-adc-and-mixed-signal-capstone');
+      expect(ch14.title).toContain('温控联锁');
+      expect(ch14.title).not.toContain('混合闭环');
+      expect(ch14.subtitle).toContain('闪速／并行 ADC');
+      const l26Serialized = JSON.stringify(l26);
+      expect(l26Serialized).toContain('闪速／并行 ADC');
+      expect(l26Serialized).toContain('温控联锁');
+      expect(l26Serialized).not.toContain('闪存并行');
+      expect(l26Serialized).not.toContain('混合闭环');
+    } finally {
+      useTutorialStore.getState().exitTutorial(false);
+    }
+  });
 });

@@ -5,6 +5,7 @@ import type {
   ComponentType,
   Wire,
 } from '../../shared/types';
+import type { WaveformEdgeStats } from '../engine/mnaSolver';
 import type { AnalysisTab } from '../store/useCircuitStore';
 
 export type TutorialDifficulty = '入门' | '基础' | '进阶' | '综合';
@@ -21,6 +22,7 @@ export interface TutorialEvalContext {
   hasSwitched?: boolean;
   initialCapVoltages?: Record<string, number>;
   initialIndCurrents?: Record<string, number>;
+  waveformStatsById?: Record<string, WaveformEdgeStats>;
 }
 
 export interface TutorialLiveFormula {
@@ -70,6 +72,10 @@ export type TutorialAutoDemoAction =
   | {
       kind: 'selectComponent';
       componentId: string;
+    }
+  | {
+      kind: 'wait';
+      seconds: number;
     };
 
 export interface TutorialCheckpoint {
@@ -81,6 +87,7 @@ export interface TutorialCheckpoint {
     buttonLabel: string;
     description: string;
     actions: TutorialAutoDemoAction[];
+    settleSeconds?: number;
   };
 }
 

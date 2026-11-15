@@ -61,6 +61,7 @@ export const Workbench3DView: React.FC = () => {
             wireTelemetryById: st.wireTelemetryById,
             isRunning: st.isRunning,
             simTime: st.simTime,
+            timeScale: st.timeScale,
             wiringDraftFrom: st.wiringDraftFrom,
             show3DLabels: st.show3DLabels,
             highlightedIds: st.highlightedIds,
@@ -184,6 +185,11 @@ export const Workbench3DView: React.FC = () => {
                 ? `${tel?.logicState ?? 0}`
                 : c.type === 'HEX_DISPLAY'
                 ? `HEX:${(tel?.logicState ?? 0).toString(16).toUpperCase()}`
+                : c.type === 'NIXIE_TUBE'
+                ? (() => {
+                    const v = tel?.logicState ?? 0;
+                    return c.props.bcdBlank && v > 9 ? 'NIX:-' : `NIX:${v.toString(16).toUpperCase()}`;
+                  })()
                 : c.type === 'GROUND'
                 ? '0V'
                 : c.type === 'VOLTMETER' && isRms

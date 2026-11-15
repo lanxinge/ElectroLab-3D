@@ -893,7 +893,7 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
           'l22s2'
         ),
         prewarmSeconds: 0.3,
-        preferredAnalysisTab: 'ac',
+        preferredAnalysisTab: 'telemetry',
         scopeChannels: ['clk2', 'out_q'],
         liveFormulas: [
           {
@@ -1446,6 +1446,7 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
           'l24s1'
         ),
         preferredAnalysisTab: 'telemetry',
+        scopeChannels: ['vm_out', 'vm_c'],
         liveFormulas: [
           {
             id: 'l24-s1-f1',
@@ -1548,7 +1549,7 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
           'l24s2'
         ),
         prewarmSeconds: 0.1,
-        preferredAnalysisTab: 'ac',
+        preferredAnalysisTab: 'telemetry',
         scopeChannels: ['vm_out', 'vm_ct'],
         liveFormulas: [
           {
@@ -1598,9 +1599,14 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
             };
           },
           autoDemo: {
-            buttonLabel: '自动发出负脉冲触发定时器',
-            description: '触发单稳态负沿脉冲并观测 1.1s 脉宽期间的高电平输出与 Ct 指数充电',
-            actions: [{ kind: 'setProp', componentId: 'sw_trig', key: 'position', value: 1 }],
+            buttonLabel: '自动复位并触发单稳态脉冲',
+            description: '先将触发开关复位至 0 并等待耦合电容与定时电路恢复，再拨至 1 发出负脉冲重新触发 1.1s 定时高电平',
+            settleSeconds: 0.6,
+            actions: [
+              { kind: 'setProp', componentId: 'sw_trig', key: 'position', value: 0 },
+              { kind: 'wait', seconds: 1.25 },
+              { kind: 'setProp', componentId: 'sw_trig', key: 'position', value: 1 },
+            ],
           },
         },
       },
@@ -1611,8 +1617,8 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
         badge: 'Step 3 · 自激方波源',
         conceptGoal: '将 THRES 与 TRIG 相连并经 RA、RB 自举循环：电容电压永远在 1/3 Vcc ~ 2/3 Vcc 锯齿往返，无需外触发！',
         explanation:
-          '拆掉外触发开关后，电容 Ct 经 RA+RB 充电到 2/3 Vcc (3.33V) 时自动导通 DIS 引脚，再经 RB 对地放电到 1/3 Vcc (1.67V) 又自动关闭 DIS……周而复始输出标准方波！当前 RB=47kΩ（约 1.38Hz），试将 RB 降到 10kΩ，看频率瞬间飙升至约 4.8Hz！',
-        analogy: '就像永不停歇的双稳态秋千：荡到高点 2/3 Vcc 自动泄力回落，跌到低点 1/3 Vcc 自动再推一把。',
+          '拆掉外触发开关后，电容 Ct 经 RA+RB 充电到 2/3 Vcc (3.33V) 时自动导通 DIS 引脚，再经 RB 对地放电到 1/3 Vcc (1.67V) 又自动关闭 DIS，周而复始输出连续方波！由于真实 555 存在 DIS 饱和导通内阻（约 12Ω）、输入端漏电与离散翻转过冲，实际波形周期比理想公式 f_理 = 1.44/((RA+2RB)C) 略长：默认 RB=47kΩ 时实测约 1.31Hz（理论 1.39Hz），RB=10kΩ 时实测约 4.59Hz（理论 4.81Hz）。',
+        analogy: '就像永不停歇的双稳态秋千：荡到高点 2/3 Vcc 自动泄力回落，跌到低点 1/3 Vcc 自动再推一把；每次换向还有一点点惯性滞后。',
         highlights: ['u555', 'ra', 'rb', 'ct', 'vm_out'],
         newlyAddedIds: ['ra', 'rb'],
         circuit: mkCircuit(
@@ -1647,25 +1653,35 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
           ],
           'l24s3'
         ),
-        prewarmSeconds: 0.6,
-        preferredAnalysisTab: 'ac',
+        prewarmSeconds: 2.2,
+        preferredAnalysisTab: 'telemetry',
         scopeChannels: ['vm_out', 'vm_ct'],
         liveFormulas: [
           {
             id: 'l24-s3-f1',
-            title: '无稳态振荡频率与占空比计算',
-            formula: 'f ≈ 1.44 / ((RA + 2RB)·C) | 占空比 D = (RA+RB)/(RA+2RB)',
+            title: '理论公式 vs 输出边沿实测频率（含器件模型误差说明）',
+            formula: '理论 f_理 ≈ 1.44/((RA+2RB)C) | 实测 f_实 = 1/T_实（含 DIS 内阻与阈值过冲偏移）',
             evaluate: (ctx) => {
               const ra = numProp(ctx, 'ra', 'resistance', 10000);
               const rb = numProp(ctx, 'rb', 'resistance', 47000);
               const cF = numProp(ctx, 'ct', 'capacitance', 10) * 1e-6;
-              const freq = 1.4427 / Math.max(1e-9, (ra + 2 * rb) * cF);
+              const idealFreq = 1.4427 / Math.max(1e-9, (ra + 2 * rb) * cF);
               const duty = ((ra + rb) / (ra + 2 * rb)) * 100;
               const vc = getTel(ctx, 'vm_ct')?.voltageDrop ?? 0;
+              const wf = ctx.waveformStatsById?.vm_out;
+              const measFreq = wf?.frequencyHz ?? null;
+              const measPeriod = wf?.periodSec ?? null;
+              const errPct =
+                measFreq !== null && idealFreq > 0
+                  ? ((measFreq - idealFreq) / idealFreq) * 100
+                  : null;
               return {
-                expression: `RA=${(ra / 1000).toFixed(0)}kΩ, RB=${(rb / 1000).toFixed(0)}kΩ, Vc=${vc.toFixed(2)}V`,
-                result: `f ≈ ${freq.toFixed(2)} Hz, 占空比 D = ${duty.toFixed(1)}%`,
-                status: freq >= 4.0 ? 'good' : 'normal',
+                expression: `RA=${(ra / 1000).toFixed(0)}kΩ, RB=${(rb / 1000).toFixed(0)}kΩ, Vc=${vc.toFixed(2)}V | 理论 f_理 = ${idealFreq.toFixed(2)} Hz (占空比 D=${duty.toFixed(1)}%)`,
+                result:
+                  measFreq !== null && measPeriod !== null
+                    ? `实测 f_实 = ${measFreq.toFixed(2)} Hz (周期 T_实 = ${(measPeriod * 1000).toFixed(0)} ms, 模型偏差 ${errPct!.toFixed(1)}%)`
+                    : `正在采样连续方波边沿周期…（理论 ${idealFreq.toFixed(2)} Hz，请稍候完成 1 个完整周期）`,
+                status: measFreq !== null && measFreq >= 4.0 ? 'good' : 'normal',
               };
             },
           },
@@ -1685,26 +1701,41 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
         ],
         ponderLinks: [{ label: '思索：555 无稳态自激循环波形图解', type: 'TIMER_555', componentId: 'u555', stepIndex: 2 }],
         checkpoint: {
-          title: '提速方波振荡频率至 ≥ 4.0 Hz',
-          instruction: '将电阻 RB 下调至 ≤ 12 kΩ（例如 10 kΩ），并确认电容锯齿电压稳定摆动在 1.3~3.7 V 窗口内。',
-          hint: '向左拖动 RB 滑块到 10000 Ω，在底部【交流与波形】栏查看紧凑方波与锯齿波！',
+          title: '验证实际输出波形周期：使实测 f_实 ≥ 4.0 Hz (T_实 ≤ 0.25 s)',
+          instruction: '将电阻 RB 下调至 ≤ 12 kΩ（例如 10 kΩ），等待示波器测得完整输出边沿周期，确认实际方波频率 ≥ 4.0 Hz。',
+          hint: '向左拖动 RB 滑块到 10000 Ω，在底部【实时电参量与示波器】观察紧凑方波（RB=10kΩ 时实测约 4.59Hz / 理论 4.81Hz）。',
           check: (ctx) => {
             const ra = numProp(ctx, 'ra', 'resistance', 10000);
             const rb = numProp(ctx, 'rb', 'resistance', 47000);
             const cF = numProp(ctx, 'ct', 'capacitance', 10) * 1e-6;
-            const freq = 1.4427 / Math.max(1e-9, (ra + 2 * rb) * cF);
+            const idealFreq = 1.4427 / Math.max(1e-9, (ra + 2 * rb) * cF);
             const vc = getTel(ctx, 'vm_ct')?.voltageDrop ?? 0;
-            const ok = freq >= 4.0 && vc >= 1.2 && vc <= 3.8;
+            const wf = ctx.waveformStatsById?.vm_out;
+            const measPeriod = wf?.periodSec ?? null;
+            const measFreq = wf?.frequencyHz ?? null;
+            const ok =
+              wf !== undefined &&
+              wf.cycleCount >= 1 &&
+              measPeriod !== null &&
+              measPeriod > 0 &&
+              measPeriod <= 0.25 &&
+              measFreq !== null &&
+              measFreq >= 4.0 &&
+              vc >= 1.2 &&
+              vc <= 3.8;
             return {
               passed: ok,
               message: ok
-                ? `高速自激方波达标！f ≈ ${freq.toFixed(2)} Hz（V_Ct=${vc.toFixed(2)}V 正沿锯齿往返）`
-                : `当前 f ≈ ${freq.toFixed(2)} Hz，V_Ct=${vc.toFixed(2)}V（需把 RB 调至 ≤ 12kΩ 使 f ≥ 4 Hz）`,
+                ? `实测方波频率达标！实测 f_实=${measFreq!.toFixed(2)} Hz (T_实=${measPeriod!.toFixed(3)} s) · 理论 ${idealFreq.toFixed(2)} Hz`
+                : measFreq !== null && measPeriod !== null
+                ? `当前实测 f_实=${measFreq.toFixed(2)} Hz (T_实=${measPeriod.toFixed(3)} s) / 理论 ${idealFreq.toFixed(2)} Hz（需实际周期 T_实 ≤ 0.25s 即 f_实 ≥ 4.0Hz）`
+                : `正在测量新参数下的实际输出波形周期…（理论 ${idealFreq.toFixed(2)} Hz，请等待完整周期完成）`,
             };
           },
           autoDemo: {
-            buttonLabel: '自动设为 RB=10kΩ (4.8 Hz 方波)',
-            description: '缩小充放共臂电阻 RB=10kΩ，使 555 多谐振荡频率提升至 4 Hz 以上',
+            buttonLabel: '自动设为 RB=10kΩ (实测 ≈4.59Hz / 理论 4.81Hz)',
+            description: '缩小充放共臂电阻 RB=10kΩ 并实测连续输出边沿周期，验证实际频率 ≥ 4.0 Hz',
+            settleSeconds: 0.85,
             actions: [{ kind: 'setProp', componentId: 'rb', key: 'resistance', value: 10000 }],
           },
         },
@@ -1778,6 +1809,7 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
           'l25s1'
         ),
         preferredAnalysisTab: 'telemetry',
+        scopeChannels: ['vm_out'],
         liveFormulas: [
           {
             id: 'l25-s1-f1',
@@ -1926,6 +1958,7 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
           'l25s2'
         ),
         preferredAnalysisTab: 'telemetry',
+        scopeChannels: ['vm_out'],
         liveFormulas: [
           {
             id: 'l25-s2-f1',
@@ -2050,7 +2083,7 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
           'l25s3'
         ),
         prewarmSeconds: 1.5,
-        preferredAnalysisTab: 'ac',
+        preferredAnalysisTab: 'telemetry',
         scopeChannels: ['vm_out'],
         liveFormulas: [
           {
@@ -2086,7 +2119,7 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
         checkpoint: {
           title: '提速时钟至 ≥ 4 Hz 生成清晰阶梯锯齿波',
           instruction: '将扫描时钟 f_clk 调升至 ≥ 4.0 Hz，在示波器上连续追踪阶梯负向扫描输出。',
-          hint: '向右拖动 f_clk 滑块至 ≥ 4 Hz，并在【交流与波形】面板看阶梯波形！',
+          hint: '向右拖动 f_clk 滑块至 ≥ 4 Hz，并在底部【实时电参量与示波器】观察阶梯波形！',
           check: (ctx) => {
             const freq = numProp(ctx, 'clk', 'frequency', 1);
             const vout = getTel(ctx, 'vm_out')?.voltageDrop ?? 0;
@@ -2110,22 +2143,22 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
   },
 
   // =========================================================================
-  // Lesson 26 (Ch.14): 窗口比较、2 位并行 Flash ADC 与闭环温控数模混合系统
+  // Lesson 26 (Ch.14): 窗口比较、2 位闪速／并行 ADC 与温控联锁数模混合实验
   // =========================================================================
   {
     id: 'ch14-adc-and-mixed-signal-capstone',
     chapterId: 'ch14',
     lessonNumber: 26,
-    title: '比较器越限报警、并行 Flash ADC 与混合闭环温控站',
-    subtitle: '把模拟感知世界数字化，再以数字安全联锁控制大功率 NMOS 负载：完成电工学全书混合信号终极贯通',
-    textbookRef: '第14章 14.1–14.3 模/数转换 (ADC) 与数模混合闭环测控系统',
+    title: '比较器越限报警、闪速／并行 ADC 与温控联锁实验',
+    subtitle: '把模拟感知世界数字化，再以数字安全联锁控制大功率 NMOS 负载：完成电工学全书混合信号综合实战',
+    textbookRef: '第14章 14.1–14.3 模/数转换 (ADC) 与数模混合温控联锁系统',
     difficulty: '综合',
     durationMin: 18,
     prerequisites: ['ch13-dac-conversion', 'ch8-nmos-and-cmos-switch'],
     learningObjectives: [
       '掌握双比较器 + 或门组成上下限“窗口越限报警器”的模拟→数字判决机制',
-      '构建 2 位超高速并行 Flash ADC（参考电阻梯 + 三比较器温度计码 + 优先级编码器 + HEX）',
-      '综合应用运放传感器比较、数字安全联锁与 NMOS 功率驱动完成全闭环自动散热控制站',
+      '构建 2 位闪速／并行 ADC（参考电阻梯 + 三比较器温度计码 + 优先级编码器 + HEX）',
+      '综合应用运放传感器比较、数字安全联锁与 NMOS 功率驱动完成温控联锁实验',
     ],
     stages: [
       {
@@ -2220,11 +2253,11 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
       {
         id: 'l26-s2',
         stageNumber: 2,
-        title: '2 位超高速并行 Flash ADC (温度计码→二进制 HEX)',
-        badge: 'Step 2 · 闪存并行 ADC',
+        title: '2 位闪速／并行 ADC (Flash ADC：温度计码→二进制 HEX)',
+        badge: 'Step 2 · 闪速／并行 ADC',
         conceptGoal: '4V 基准四等分为 3V/2V/1V 阶梯，3 路比较器一次并发生成温度计码 C3C2C1，编码门阵列无延迟译出 0~3！',
         explanation:
-          '这是世界上最快的 A/D 转换架构 (Flash ADC)：四只 1kΩ 分压电阻同步造出 3.0V、2.0V、1.0V 三个参考阶梯；输入电压 Vin 同时与这三档比较得出温度计码 [C3,C2,C1]，再由 NOT/AND/OR 编码电路秒变二进制 B1=C2, B0=C3|(¬C2·C1) 写入 HEX！逐步调高 Vin：0.5V→0，1.5V→1，2.5V→2，3.6V→3！',
+          '这是转换速度最快的闪速／并行 A/D 架构（Flash ADC）：四只 1kΩ 分压电阻同步造出 3.0V、2.0V、1.0V 三个参考阶梯；输入电压 Vin 同时与这三档比较得出温度计码 [C3,C2,C1]，再由 NOT/AND/OR 编码电路秒变二进制 B1=C2, B0=C3|(¬C2·C1) 写入 HEX！逐步调高 Vin：0.5V→0，1.5V→1，2.5V→2，3.6V→3！',
         analogy: '就像在墙上同时划好 1米、2米、3米 三条刻度线：你站过去一扫就立刻知道跨越了几条线，完全不必一根一根尺子慢慢试！',
         highlights: ['vin', 'cmp3', 'cmp2', 'cmp1', 'hex1'],
         newlyAddedIds: ['vref', 'vin', 'cmp3', 'cmp2', 'cmp1', 'not_c2', 'and_b0', 'or_b0', 'hex1'],
@@ -2304,7 +2337,7 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
         ponderLinks: [{ label: '思索：HEX 数码管实时二进制译码', type: 'HEX_DISPLAY', componentId: 'hex1', stepIndex: 0 }],
         checkpoint: {
           title: '全量程量化测试：使 HEX 显示 3 (11₂)',
-          instruction: '建议逐档体验 1.5V(1) → 2.5V(2)，最后调升 Vin 至 > 3.1V 让 Flash ADC 输出满量程 3！',
+          instruction: '建议逐档体验 1.5V(1) → 2.5V(2)，最后调升 Vin 至 > 3.1V 让闪速／并行 ADC 输出满量程 3！',
           hint: '将 Vin 滑块推到 ≥ 3.2V（例如 3.6V）。',
           check: (ctx) => {
             const vin = numProp(ctx, 'vin', 'voltage', 0.5);
@@ -2313,7 +2346,7 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
             return {
               passed: ok,
               message: ok
-                ? `2-bit 并行 Flash ADC 满量程量化成功！Vin=${vin.toFixed(2)}V -> HEX=3 (11₂)`
+                ? `2-bit 闪速／并行 ADC 满量程量化成功！Vin=${vin.toFixed(2)}V -> HEX=3 (11₂)`
                 : `当前 Vin=${vin.toFixed(2)}V -> 量化输出 ${hex}（顺便推至 ≥ 3.2V 验证 11₂ = 3）`,
             };
           },
@@ -2327,12 +2360,12 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
       {
         id: 'l26-s3',
         stageNumber: 3,
-        title: '全书贯通：运放测温 + 数字联锁 + NMOS 风扇控制站',
-        badge: 'Step 3 · 下册混合终极实战',
-        conceptGoal: '模拟传感越限 → 运放比较判决 → 数字与门安全联锁 → NMOS 大功率低边开关点亮 12V 散热负载！',
+        title: '全书贯通：运放测温 + 数字安全联锁 + NMOS 温控联锁实验',
+        badge: 'Step 3 · 温控联锁实验',
+        conceptGoal: '模拟传感越限 → 运放比较判决 → 数字与门安全联锁 → NMOS 大功率低边开关点亮 12V 风扇负载！',
         explanation:
-          '这最后一战串联起你学过的全部模电与数电知识！温度传感等效电压 V_temp 与设定阈值 2.8V 在运放中比出数字过热位，再与自动允许开关 AUTO 送入数字 AND 门做安全互锁，最终经栅极电阻驱动 N-MOSFET 功率管导通 12V/1A 风扇灯泡！将温度感知升高到 ≥ 3.2V，点亮全自动散热站吧！',
-        analogy: '就像现代新能源汽车热管理系统：温度探头（模拟）→ 比较判断（模转数）→ 安全策略（数字门）→ MOS功率桥驱动大风扇（强电执行）！',
+          '这最后一战串联起你学过的全部模电与数电知识！我们通过手动调节温度传感电压 V_temp，与设定阈值 2.8V 在运放中比出数字过温位，再与自动允许开关 AUTO 送入数字 AND 门做安全联锁，最终经栅极电阻驱动 N-MOSFET 功率管导通 12V/1A 风扇灯泡（本实验不模拟风扇吹风降温的热反馈回路）。将 V_temp 升高到 ≥ 3.2V，触发温控联锁点亮风扇负载吧！',
+        analogy: '就像工业设备的过温安全联锁链：温度探头越限（模拟）→ 比较判决（模转数）→ 安全许可（数字与门）→ MOS 功率桥驱动执行器（强电负载）！',
         highlights: ['v_temp', 'oa_ctrl', 'and_fan', 'q_fan', 'fan_lamp'],
         newlyAddedIds: ['v_temp', 'v_set', 'oa_ctrl', 'sw_auto', 'and_fan', 'out_drv', 'r_gate', 'q_fan', 'v_bus', 'fan_lamp', 'am_fan'],
         circuit: mkCircuit(
@@ -2425,12 +2458,12 @@ export const LESSONS_VOL2_DIGITAL_MIXED: TutorialLesson[] = [
             return {
               passed: ok,
               message: ok
-                ? `全书下册混合闭环终极挑战通关！DRV=${drv} 精准撬动 I_fan=${fmtI(iFan)} 大功率散热！`
+                ? `全书下册温控联锁实验通关！DRV=${drv} 精准撬动 I_fan=${fmtI(iFan)} 大功率风扇负载！`
                 : `当前 DRV=${drv}, I_fan=${fmtI(iFan)}（需 AUTO=1 且 V_temp ≥ 3.2V）`,
             };
           },
           autoDemo: {
-            buttonLabel: '自动升温至 3.8V 启动散热闭环',
+            buttonLabel: '自动升温至 3.8V 触发温控联锁',
             description: '启用 AUTO=1 并将温度信号升至 3.8V，经比较器+与门驱动 NMOS 散热灯负载',
             actions: [
               { kind: 'setProp', componentId: 'sw_auto', key: 'state', value: 1 },

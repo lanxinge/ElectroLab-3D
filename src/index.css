@@ -47,3 +47,23 @@
   stroke-dasharray: 6 6;
   animation: dashFlow 0.7s linear infinite reverse;
 }
+
+@keyframes acWaveShuttle {
+  0% {
+    stroke-dashoffset: 0;
+    stroke: #38bdf8;
+  }
+  50% {
+    stroke-dashoffset: -18;
+    stroke: #fbbf24;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    stroke: #38bdf8;
+  }
+}
+
+.wire-flow-anim-ac {
+  stroke-dasharray: 5 6;
+  animation: acWaveShuttle 1.15s ease-in-out infinite;
+}

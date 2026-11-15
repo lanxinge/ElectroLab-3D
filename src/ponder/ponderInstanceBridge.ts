@@ -10,6 +10,7 @@ import {
   getComponentPins,
 } from '../engine/componentCatalog';
 import { evaluateTruthChipOutputs, parseTruthChipConfig } from '../engine/customIcEngine';
+import { evaluateAlu4Bit, parseRamInitHex } from '../engine/mnaSolver';
 import { PONDER_DATA } from './ponderData';
 import type { PonderLiveMetric, PonderModuleSpec } from './ponderTypes';
 
@@ -41,6 +42,33 @@ function fmtCurrent(amps: number): string {
   if (abs >= 1) return `${safe.toFixed(3)} A`;
   if (abs >= 1e-3) return `${(safe * 1e3).toFixed(2)} mA`;
   return `${(safe * 1e6).toFixed(1)} µA`;
+}
+
+function readNibbleFromTel(
+  tel: ComponentTelemetry | undefined,
+  p3: string,
+  p2: string,
+  p1: string,
+  p0: string
+): number {
+  return (
+    (fmtBoolBit(pinV(tel, p3)) << 3) |
+    (fmtBoolBit(pinV(tel, p2)) << 2) |
+    (fmtBoolBit(pinV(tel, p1)) << 1) |
+    fmtBoolBit(pinV(tel, p0))
+  );
+}
+
+function writeNibbleOverrides(
+  overrides: Record<string, number>,
+  prefix: string,
+  val: number
+): void {
+  const v = val & 0x0f;
+  overrides[`${prefix}3`] = (v >> 3) & 1 ? 5 : 0;
+  overrides[`${prefix}2`] = (v >> 2) & 1 ? 5 : 0;
+  overrides[`${prefix}1`] = (v >> 1) & 1 ? 5 : 0;
+  overrides[`${prefix}0`] = v & 1 ? 5 : 0;
 }
 
 function fmtBoolBit(v: number | undefined): 0 | 1 {
@@ -338,6 +366,49 @@ export function deriveInstancePonderContext(
     }
     case 'COUNTER_4BIT': {
       initialParams.clr = fmtBoolBit(pinV(telemetry, 'rst'));
+      break;
+    }
+    case 'NIXIE_TUBE': {
+      initialParams.digit = readNibbleFromTel(telemetry, 'd3', 'd2', 'd1', 'd0');
+      initialParams.bcdBlank = comp.props.bcdBlank ? 1 : 0;
+      break;
+    }
+    case 'ENCODER_4_2': {
+      initialParams.i3 = fmtBoolBit(pinV(telemetry, 'i3'));
+      initialParams.i2 = fmtBoolBit(pinV(telemetry, 'i2'));
+      initialParams.i1 = fmtBoolBit(pinV(telemetry, 'i1'));
+      initialParams.i0 = fmtBoolBit(pinV(telemetry, 'i0'));
+      break;
+    }
+    case 'DECODER_2_4': {
+      initialParams.a1 = fmtBoolBit(pinV(telemetry, 'a1'));
+      initialParams.a0 = fmtBoolBit(pinV(telemetry, 'a0'));
+      initialParams.inh = fmtBoolBit(pinV(telemetry, 'inh'));
+      break;
+    }
+    case 'MUX_4BIT': {
+      initialParams.valA = readNibbleFromTel(telemetry, 'a3', 'a2', 'a1', 'a0');
+      initialParams.valB = readNibbleFromTel(telemetry, 'b3', 'b2', 'b1', 'b0');
+      initialParams.sel = fmtBoolBit(pinV(telemetry, 'sel'));
+      break;
+    }
+    case 'REGISTER_4BIT': {
+      initialParams.dVal = readNibbleFromTel(telemetry, 'd3', 'd2', 'd1', 'd0');
+      initialParams.we = fmtBoolBit(pinV(telemetry, 'we'));
+      initialParams.rst = fmtBoolBit(pinV(telemetry, 'rst'));
+      break;
+    }
+    case 'ALU_4BIT': {
+      initialParams.valA = readNibbleFromTel(telemetry, 'a3', 'a2', 'a1', 'a0');
+      initialParams.valB = readNibbleFromTel(telemetry, 'b3', 'b2', 'b1', 'b0');
+      initialParams.op =
+        (fmtBoolBit(pinV(telemetry, 'op1')) << 1) | fmtBoolBit(pinV(telemetry, 'op0'));
+      break;
+    }
+    case 'RAM_16X4': {
+      initialParams.addr = readNibbleFromTel(telemetry, 'a3', 'a2', 'a1', 'a0');
+      initialParams.dataIn = readNibbleFromTel(telemetry, 'd3', 'd2', 'd1', 'd0');
+      initialParams.we = fmtBoolBit(pinV(telemetry, 'we'));
       break;
     }
     case 'CUSTOM_TRUTH_8':
@@ -1795,6 +1866,207 @@ export function deriveInstancePonderContext(
       causalExplanation = `封装集成芯片 ${comp.label}（共 ${pins.length} 脚）在仿真求解时会完整展开内部子电路参与全网 MNA 联合求解：当前引脚测得输入 [${
         inStr || '-'
       }] → 输出 [${outStr || '-'}]。`;
+      break;
+    }
+
+    case 'NIXIE_TUBE': {
+      const baseDigit = readNibbleFromTel(telemetry, 'd3', 'd2', 'd1', 'd0');
+      const baseBlank = Boolean(comp.props.bcdBlank);
+      const digit = isOverridden ? Math.round(paramNum(activeParams, 'digit', baseDigit)) & 15 : baseDigit;
+      const blank = isOverridden ? paramBit(activeParams, 'bcdBlank', baseBlank ? 1 : 0) === 1 : baseBlank;
+      const isOff = blank && digit > 9;
+      measuredSummary = `0b${baseDigit.toString(2).padStart(4, '0')} (${baseDigit.toString(16).toUpperCase()})`;
+      if (isOverridden) {
+        writeNibbleOverrides(pinVoltageOverrides, 'd', digit);
+      }
+      liveMetrics.push(
+        {
+          label: isOverridden ? '试算辉光数字' : '实测辉光数字',
+          value: isOff ? '熄灭 (BCD >9)' : `${digit.toString(16).toUpperCase()} (${digit})`,
+          accent: isOff ? 'rose' : 'amber',
+        },
+        { label: '输入二进制码', value: `0b${digit.toString(2).padStart(4, '0')}`, accent: 'sky' }
+      );
+      causalExplanation = `${
+        isOverridden ? `【交互试算 · 工作台原实测：${measuredSummary}】` : ''
+      }${comp.label} 接收到 D3..D0 = ${digit.toString(2).padStart(4, '0')}，${
+        isOff
+          ? '因开启了十进制 BCD 消隐且码值 > 9，所有字符阴极维持熄灭状态。'
+          : `点亮管内对应 “${digit.toString(16).toUpperCase()}” 号立体金属丝阴极发出霓虹辉光。`
+      }`;
+      break;
+    }
+
+    case 'ENCODER_4_2': {
+      const b3 = fmtBoolBit(pinV(telemetry, 'i3'));
+      const b2 = fmtBoolBit(pinV(telemetry, 'i2'));
+      const b1 = fmtBoolBit(pinV(telemetry, 'i1'));
+      const b0 = fmtBoolBit(pinV(telemetry, 'i0'));
+      measuredSummary = `I=${b3}${b2}${b1}${b0}`;
+      const i3 = isOverridden ? paramBit(activeParams, 'i3', b3) : b3;
+      const i2 = isOverridden ? paramBit(activeParams, 'i2', b2) : b2;
+      const i1 = isOverridden ? paramBit(activeParams, 'i1', b1) : b1;
+      const i0 = isOverridden ? paramBit(activeParams, 'i0', b0) : b0;
+      const gs: 0 | 1 = i3 || i2 || i1 || i0 ? 1 : 0;
+      const y1: 0 | 1 = i3 || i2 ? 1 : 0;
+      const y0: 0 | 1 = i3 || (!i2 && i1) ? 1 : 0;
+      if (isOverridden) {
+        pinVoltageOverrides.i3 = i3 * 5;
+        pinVoltageOverrides.i2 = i2 * 5;
+        pinVoltageOverrides.i1 = i1 * 5;
+        pinVoltageOverrides.i0 = i0 * 5;
+        pinVoltageOverrides.y1 = y1 * 5;
+        pinVoltageOverrides.y0 = y0 * 5;
+        pinVoltageOverrides.gs = gs * 5;
+      }
+      const win = i3 ? 'I3' : i2 ? 'I2' : i1 ? 'I1' : i0 ? 'I0' : '无有效输入';
+      liveMetrics.push(
+        { label: isOverridden ? '试算编码 Y1Y0' : '实测编码 Y1Y0', value: `${y1}${y0} (${(y1 << 1) | y0})`, accent: 'emerald' },
+        { label: '有效标志 GS', value: gs ? `1 · 命中 ${win}` : '0 (全部空闲)', accent: gs ? 'amber' : 'rose' }
+      );
+      causalExplanation = `${
+        isOverridden ? `【交互试算 · 工作台原实测：${measuredSummary}】` : ''
+      }优先编码器 ${comp.label} 在输入 I3..I0=${i3}${i2}${i1}${i0} 下优先响应最高位【${win}】，输出二进制 Y1Y0=${y1}${y0}，有效信号 GS=${gs}。`;
+      break;
+    }
+
+    case 'DECODER_2_4': {
+      const ba1 = fmtBoolBit(pinV(telemetry, 'a1'));
+      const ba0 = fmtBoolBit(pinV(telemetry, 'a0'));
+      const binh = fmtBoolBit(pinV(telemetry, 'inh'));
+      measuredSummary = `A=${ba1}${ba0}, INH=${binh}`;
+      const a1 = isOverridden ? paramBit(activeParams, 'a1', ba1) : ba1;
+      const a0 = isOverridden ? paramBit(activeParams, 'a0', ba0) : ba0;
+      const inh = isOverridden ? paramBit(activeParams, 'inh', binh) : binh;
+      const idx = (a1 << 1) | a0;
+      if (isOverridden) {
+        pinVoltageOverrides.a1 = a1 * 5;
+        pinVoltageOverrides.a0 = a0 * 5;
+        pinVoltageOverrides.inh = inh * 5;
+        pinVoltageOverrides.y3 = !inh && idx === 3 ? 5 : 0;
+        pinVoltageOverrides.y2 = !inh && idx === 2 ? 5 : 0;
+        pinVoltageOverrides.y1 = !inh && idx === 1 ? 5 : 0;
+        pinVoltageOverrides.y0 = !inh && idx === 0 ? 5 : 0;
+      }
+      liveMetrics.push(
+        { label: '地址输入 A1A0', value: `${a1}${a0} (十进制 ${idx})`, accent: 'sky' },
+        { label: '独热输出 Y3..Y0', value: inh ? '0000 (INH 禁止)' : (1 << idx).toString(2).padStart(4, '0'), accent: inh ? 'rose' : 'emerald' }
+      );
+      causalExplanation = `${
+        isOverridden ? `【交互试算 · 工作台原实测：${measuredSummary}】` : ''
+      }2-4 译码器 ${comp.label} 当前 INH=${inh}，地址 A1A0=${a1}${a0} ${
+        inh ? '被禁止端全线阻断，四路输出全部输出 0V。' : `唯一选通 Y${idx} 输出高电平 5V。`
+      }`;
+      break;
+    }
+
+    case 'MUX_4BIT': {
+      const baseA = readNibbleFromTel(telemetry, 'a3', 'a2', 'a1', 'a0');
+      const baseB = readNibbleFromTel(telemetry, 'b3', 'b2', 'b1', 'b0');
+      const baseSel = fmtBoolBit(pinV(telemetry, 'sel'));
+      measuredSummary = `A=0x${baseA.toString(16).toUpperCase()}, B=0x${baseB.toString(16).toUpperCase()}, SEL=${baseSel}`;
+      const valA = isOverridden ? Math.round(paramNum(activeParams, 'valA', baseA)) & 15 : baseA;
+      const valB = isOverridden ? Math.round(paramNum(activeParams, 'valB', baseB)) & 15 : baseB;
+      const sel = isOverridden ? paramBit(activeParams, 'sel', baseSel) : baseSel;
+      const yVal = sel ? valB : valA;
+      if (isOverridden) {
+        writeNibbleOverrides(pinVoltageOverrides, 'a', valA);
+        writeNibbleOverrides(pinVoltageOverrides, 'b', valB);
+        pinVoltageOverrides.sel = sel * 5;
+        writeNibbleOverrides(pinVoltageOverrides, 'y', yVal);
+      }
+      liveMetrics.push(
+        { label: '通道选通 SEL', value: sel ? '1 → 选择 B[3:0]' : '0 → 选择 A[3:0]', accent: sel ? 'violet' : 'sky' },
+        { label: '输出总线 Y[3:0]', value: `0x${yVal.toString(16).toUpperCase()} (0b${yVal.toString(2).padStart(4, '0')})`, accent: 'emerald' }
+      );
+      causalExplanation = `${
+        isOverridden ? `【交互试算 · 工作台原实测：${measuredSummary}】` : ''
+      }4位总线选择器 ${comp.label} 在 SEL=${sel} 控制下将 ${sel ? 'B' : 'A'} 路数据整体切换至 Y[3:0] = 0x${yVal.toString(16).toUpperCase()}。`;
+      break;
+    }
+
+    case 'REGISTER_4BIT': {
+      const baseD = readNibbleFromTel(telemetry, 'd3', 'd2', 'd1', 'd0');
+      const baseWe = fmtBoolBit(pinV(telemetry, 'we'));
+      const baseRst = fmtBoolBit(pinV(telemetry, 'rst'));
+      const qCur = telemetry?.logicState ?? 0;
+      measuredSummary = `Q=0x${qCur.toString(16).toUpperCase()}, WE=${baseWe}, RST=${baseRst}`;
+      const dVal = isOverridden ? Math.round(paramNum(activeParams, 'dVal', baseD)) & 15 : baseD;
+      const we = isOverridden ? paramBit(activeParams, 'we', baseWe) : baseWe;
+      const rst = isOverridden ? paramBit(activeParams, 'rst', baseRst) : baseRst;
+      if (isOverridden) {
+        writeNibbleOverrides(pinVoltageOverrides, 'd', dVal);
+        pinVoltageOverrides.we = we * 5;
+        pinVoltageOverrides.rst = rst * 5;
+        if (rst) writeNibbleOverrides(pinVoltageOverrides, 'q', 0);
+      }
+      liveMetrics.push(
+        { label: '当前锁存 Q[3:0]', value: `0x${(rst ? 0 : qCur).toString(16).toUpperCase()} (${rst ? 0 : qCur})`, accent: 'sky' },
+        { label: '控制信号 WE / RST', value: rst ? 'RST=1 异步清零' : we ? `WE=1 允许锁存 D=0x${dVal.toString(16).toUpperCase()}` : 'WE=0 保持不变', accent: rst ? 'rose' : we ? 'emerald' : 'amber' }
+      );
+      causalExplanation = `${
+        isOverridden ? `【交互试算 · 工作台原实测：${measuredSummary}】` : ''
+      }4位并行寄存器 ${comp.label} 当前锁存值为 0x${qCur.toString(16).toUpperCase()}；${
+        rst ? 'RST=1 有效，输出强制归 0。' : we ? `WE=1，下一个 CLK 上升沿将同步写入 D=0x${dVal.toString(16).toUpperCase()}。` : 'WE=0，旧数值被稳固锁定不受时钟干扰。'
+      }`;
+      break;
+    }
+
+    case 'ALU_4BIT': {
+      const baseA = readNibbleFromTel(telemetry, 'a3', 'a2', 'a1', 'a0');
+      const baseB = readNibbleFromTel(telemetry, 'b3', 'b2', 'b1', 'b0');
+      const baseOp =
+        (fmtBoolBit(pinV(telemetry, 'op1')) << 1) | fmtBoolBit(pinV(telemetry, 'op0'));
+      measuredSummary = `A=0x${baseA.toString(16).toUpperCase()}, B=0x${baseB.toString(16).toUpperCase()}, OP=${baseOp}`;
+      const valA = isOverridden ? Math.round(paramNum(activeParams, 'valA', baseA)) & 15 : baseA;
+      const valB = isOverridden ? Math.round(paramNum(activeParams, 'valB', baseB)) & 15 : baseB;
+      const op = isOverridden ? Math.round(paramNum(activeParams, 'op', baseOp)) & 3 : baseOp;
+      const { result, cout, zero, opName } = evaluateAlu4Bit(valA, valB, op);
+      if (isOverridden) {
+        writeNibbleOverrides(pinVoltageOverrides, 'a', valA);
+        writeNibbleOverrides(pinVoltageOverrides, 'b', valB);
+        pinVoltageOverrides.op1 = (op >> 1) & 1 ? 5 : 0;
+        pinVoltageOverrides.op0 = op & 1 ? 5 : 0;
+        writeNibbleOverrides(pinVoltageOverrides, 'f', result);
+        pinVoltageOverrides.cout = cout * 5;
+        pinVoltageOverrides.zero = zero * 5;
+      }
+      liveMetrics.push(
+        { label: `指令 ${opName} 结果 F`, value: `0x${result.toString(16).toUpperCase()} (${result})`, accent: 'amber' },
+        { label: '标志位 COUT / ZERO', value: `C=${cout} · Z=${zero}`, accent: zero ? 'rose' : 'emerald' }
+      );
+      causalExplanation = `${
+        isOverridden ? `【交互试算 · 工作台原实测：${measuredSummary}】` : ''
+      }4位 ALU ${comp.label} 对 A=${valA} 与 B=${valB} 执行 ${opName} (OP=${op.toString(2).padStart(2, '0')}) ⇒ F=${result} (0b${result.toString(2).padStart(4, '0')})，进位 COUT=${cout}，零标志 ZERO=${zero}。`;
+      break;
+    }
+
+    case 'RAM_16X4': {
+      const baseAddr = readNibbleFromTel(telemetry, 'a3', 'a2', 'a1', 'a0');
+      const baseDin = readNibbleFromTel(telemetry, 'd3', 'd2', 'd1', 'd0');
+      const baseWe = fmtBoolBit(pinV(telemetry, 'we'));
+      const memArr = parseRamInitHex(comp.props.initHex);
+      const qMeasured = telemetry?.logicState ?? memArr[baseAddr] ?? 0;
+      measuredSummary = `MEM[0x${baseAddr.toString(16).toUpperCase()}]=0x${qMeasured.toString(16).toUpperCase()}, WE=${baseWe}`;
+      const addr = isOverridden ? Math.round(paramNum(activeParams, 'addr', baseAddr)) & 15 : baseAddr;
+      const din = isOverridden ? Math.round(paramNum(activeParams, 'dataIn', baseDin)) & 15 : baseDin;
+      const we = isOverridden ? paramBit(activeParams, 'we', baseWe) : baseWe;
+      const qShown = isOverridden ? (we ? din : (memArr[addr] ?? 0)) : qMeasured;
+      if (isOverridden) {
+        writeNibbleOverrides(pinVoltageOverrides, 'a', addr);
+        writeNibbleOverrides(pinVoltageOverrides, 'd', din);
+        pinVoltageOverrides.we = we * 5;
+        writeNibbleOverrides(pinVoltageOverrides, 'q', qShown);
+      }
+      liveMetrics.push(
+        { label: `寻址单元 MEM[0x${addr.toString(16).toUpperCase()}]`, value: `0x${qShown.toString(16).toUpperCase()} (${qShown})`, accent: 'emerald' },
+        { label: '读写状态', value: we ? `WE=1 (上升沿写入 0x${din.toString(16).toUpperCase()})` : 'WE=0 (异步只读)', accent: we ? 'sky' : 'amber' }
+      );
+      causalExplanation = `${
+        isOverridden ? `【交互试算 · 工作台原实测：${measuredSummary}】` : ''
+      }16×4 SRAM ${comp.label} 当前指向地址 0x${addr.toString(16).toUpperCase()}，读出数据 Q=0x${qShown.toString(16).toUpperCase()}；${
+        we ? 'WE=1 有效，CLK 上升沿会把 D[3:0] 覆盖写入该存储单元。' : 'WE=0 保持只读保护。'
+      }`;
       break;
     }
   }

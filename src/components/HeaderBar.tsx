@@ -57,9 +57,9 @@ const TutorialHeaderStatus: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 };
 
 export const HeaderBar: React.FC<{
-  activeView: 'simulator' | 'tutorial' | 'forum';
-  onChangeView: (v: 'simulator' | 'tutorial' | 'forum') => void;
-  onOpenAuth: () => void;
+  activeView: 'home' | 'simulator' | 'tutorial' | 'forum';
+  onChangeView: (v: 'home' | 'simulator' | 'tutorial' | 'forum') => void;
+  onOpenAuth: (tab?: 'login' | 'register') => void;
   onOpenPublish: () => void;
   onOpenProjects: () => void;
 }> = ({ activeView, onChangeView, onOpenAuth, onOpenPublish, onOpenProjects }) => {
@@ -128,7 +128,12 @@ export const HeaderBar: React.FC<{
     <header className="h-12 px-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 z-30 whitespace-nowrap">
       {/* Brand + Primary Navigation */}
       <div className="flex items-center gap-2 shrink-0">
-        <div className="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={() => onChangeView('home')}
+          title="返回平台首页"
+          className="flex items-center gap-2 shrink-0 text-left rounded-lg hover:bg-slate-800/70 pr-1.5 py-0.5 transition"
+        >
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center text-slate-950 font-black text-xs shadow">
             <Cpu className="w-4 h-4" />
           </div>
@@ -136,10 +141,22 @@ export const HeaderBar: React.FC<{
             <div className="text-xs font-bold text-slate-100 tracking-tight">ElectroLab 3D</div>
             <div className="text-[10px] text-sky-400">本科电工学全栈仿真台</div>
           </div>
-        </div>
+        </button>
 
         <nav className="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-xs shrink-0">
           <button
+            data-testid="nav-home-btn"
+            onClick={() => onChangeView('home')}
+            className={`px-2 py-1 rounded-md font-medium transition whitespace-nowrap ${
+              activeView === 'home'
+                ? 'bg-sky-500 text-slate-950 font-semibold'
+                : 'text-slate-400 hover:text-slate-100'
+            }`}
+          >
+            首页
+          </button>
+          <button
+            data-testid="nav-simulator-btn"
             onClick={() => onChangeView('simulator')}
             className={`px-2 py-1 rounded-md font-medium transition whitespace-nowrap ${
               activeView === 'simulator'
@@ -147,7 +164,7 @@ export const HeaderBar: React.FC<{
                 : 'text-slate-400 hover:text-slate-100'
             }`}
           >
-            3D/2D 仿真台
+            3D/2D 工作场
           </button>
           <button
             data-testid="nav-tutorial-btn"
@@ -162,6 +179,7 @@ export const HeaderBar: React.FC<{
             教学模式
           </button>
           <button
+            data-testid="nav-forum-btn"
             onClick={() => onChangeView('forum')}
             className={`flex items-center gap-1 px-2 py-1 rounded-md font-medium transition whitespace-nowrap ${
               activeView === 'forum'
@@ -467,13 +485,23 @@ export const HeaderBar: React.FC<{
             </button>
           </div>
         ) : (
-          <button
-            onClick={onOpenAuth}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium"
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            登录 / 注册
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              data-testid="header-login-btn"
+              onClick={() => onOpenAuth('login')}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-medium whitespace-nowrap transition"
+            >
+              <LogIn className="w-3.5 h-3.5 text-sky-400" />
+              登录
+            </button>
+            <button
+              data-testid="header-register-btn"
+              onClick={() => onOpenAuth('register')}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold whitespace-nowrap transition"
+            >
+              学生注册
+            </button>
+          </div>
         )}
       </div>
     </header>

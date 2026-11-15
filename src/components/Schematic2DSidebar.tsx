@@ -464,6 +464,54 @@ function renderSymbolBody(
       );
     }
 
+    case 'NIXIE_TUBE': {
+      const val = Math.max(0, Math.min(15, telemetry?.logicState ?? 0));
+      const blanked = Boolean(comp.props.bcdBlank) && val > 9;
+      const char = blanked ? '-' : val.toString(16).toUpperCase();
+      return (
+        <g>
+          {[-30, -10, 10, 30].map((y) => (
+            <line key={y} x1={-45} y1={y} x2={-26} y2={y} stroke={stroke} strokeWidth={2} />
+          ))}
+          {/* Vacuum glass envelope & exhaust tip */}
+          <path
+            d="M -2 -44 L 2 -44 L 4 -38 L 22 -38 Q 26 -38 26 -30 L 26 32 Q 26 38 20 38 L -20 38 Q -26 38 -26 32 L -26 -30 Q -26 -38 -22 -38 L -4 -38 Z"
+            fill="#120905"
+            stroke="#fb923c"
+            strokeWidth={2}
+          />
+          {/* Subtle hexagonal anode grid hint */}
+          <line x1={-18} y1={-22} x2={18} y2={-22} stroke="rgba(251,146,60,0.22)" strokeWidth={1} strokeDasharray="3 3" />
+          <line x1={-18} y1={0} x2={18} y2={0} stroke="rgba(251,146,60,0.22)" strokeWidth={1} strokeDasharray="3 3" />
+          <line x1={-18} y1={22} x2={18} y2={22} stroke="rgba(251,146,60,0.22)" strokeWidth={1} strokeDasharray="3 3" />
+          <ellipse cx={2} cy={2} rx={15} ry={22} fill={blanked ? 'transparent' : 'rgba(251,146,60,0.20)'} />
+          <text
+            x={2}
+            y={12}
+            textAnchor="middle"
+            fontSize={32}
+            fontWeight="bold"
+            fontFamily="monospace"
+            fill={blanked ? '#64748b' : '#ff7b24'}
+          >
+            {char}
+          </text>
+          {['D3', 'D2', 'D1', 'D0'].map((lbl, idx) => (
+            <text
+              key={lbl}
+              x={-23}
+              y={-27 + idx * 20}
+              textAnchor="start"
+              fontSize={7}
+              fill="#fdba74"
+            >
+              {lbl}
+            </text>
+          ))}
+        </g>
+      );
+    }
+
     case 'INF_SOURCE': {
       const v = Number(comp.props.voltage ?? 12);
       return (
@@ -678,13 +726,25 @@ function renderSymbolBody(
       const maxAbsY = Math.max(20, ...pins.map((p) => Math.abs(p.offset2d.y)));
       const maxAbsX = Math.max(45, ...pins.map((p) => Math.abs(p.offset2d.x)));
       const bodyHalfW = maxAbsX >= 54 ? 42 : 34;
-      const bodyHalfH = Math.max(36, maxAbsY + 18);
+      const bodyHalfH = Math.max(36, maxAbsY + (maxAbsY >= 60 ? 24 : 18));
 
       const accentStroke =
         comp.type === 'CUSTOM_IC'
           ? parseCustomIcPayload(comp).color || '#0284c7'
           : comp.type === 'CUSTOM_TRUTH_8' || comp.type === 'CUSTOM_TRUTH_16'
           ? '#a855f7'
+          : comp.type === 'ALU_4BIT'
+          ? '#f59e0b'
+          : comp.type === 'RAM_16X4'
+          ? '#10b981'
+          : comp.type === 'REGISTER_4BIT'
+          ? '#38bdf8'
+          : comp.type === 'MUX_4BIT'
+          ? '#818cf8'
+          : comp.type === 'ENCODER_4_2'
+          ? '#ec4899'
+          : comp.type === 'DECODER_2_4'
+          ? '#2dd4bf'
           : stroke;
       const titleText =
         comp.type === 'CUSTOM_IC'
@@ -852,6 +912,7 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
   const selected = useCircuitStore((s) => s.selected);
   const telemetryById = useCircuitStore((s) => s.telemetryById);
   const wireTelemetryById = useCircuitStore((s) => s.wireTelemetryById);
+  const isRunning = useCircuitStore((s) => s.isRunning);
   const schematicTheme = useCircuitStore((s) => s.schematicTheme);
   const wiringDraftFrom = useCircuitStore((s) => s.wiringDraftFrom);
   const circuitLoadVersion = useCircuitStore((s) => s.circuitLoadVersion);
@@ -1178,8 +1239,12 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
               const pathD = computeOrthogonalPath(p1, p2);
               const isSel = selected?.kind === 'wire' && selected.id === w.id;
               const wt = wireTelemetryById[w.id];
-              const cur = wt?.current ?? 0;
-              const hasFlow = Math.abs(cur) > 1e-4;
+              const isAcFlow = Boolean(isRunning && wt?.isAc && (wt.iRms ?? 0) > 1e-4);
+              const dcCur =
+                wt?.dcMean !== undefined && Math.abs(wt.dcMean) > 1e-4
+                  ? wt.dcMean
+                  : (wt?.current ?? 0);
+              const hasDcFlow = Boolean(isRunning && !isAcFlow && Math.abs(dcCur) > 1e-4);
 
               return (
                 <g
@@ -1199,13 +1264,23 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
-                  {hasFlow && (
+                  {isAcFlow && (
+                    <path
+                      d={pathD}
+                      fill="none"
+                      stroke="#38bdf8"
+                      strokeWidth={2.3}
+                      className="wire-flow-anim-ac pointer-events-none"
+                      opacity={0.92}
+                    />
+                  )}
+                  {hasDcFlow && (
                     <path
                       d={pathD}
                       fill="none"
                       stroke="#fef08a"
                       strokeWidth={2}
-                      className={cur > 0 ? 'wire-flow-anim' : 'wire-flow-anim-rev'}
+                      className={dcCur > 0 ? 'wire-flow-anim' : 'wire-flow-anim-rev'}
                       opacity={0.85}
                     />
                   )}

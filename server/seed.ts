@@ -80,9 +80,9 @@ export function seedDatabase(db: DatabaseSync): void {
       preset.category,
       JSON.stringify(preset.tags),
       JSON.stringify(preset.circuit),
-      initialLikes[idx],
+      initialLikes[idx] ?? 14 + idx * 3,
       0,
-      initialForks[idx]
+      initialForks[idx] ?? 6 + idx * 2
     );
     postIds.push(Number(res.lastInsertRowid));
   });

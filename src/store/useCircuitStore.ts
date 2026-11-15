@@ -589,6 +589,12 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
     if (isAcParamChange) {
       state.simRuntime.acHistory = [];
     }
+    if (propChanged) {
+      state.simRuntime.waveformStats = {};
+    }
+    if (target?.type === 'RAM_16X4' && key === 'initHex') {
+      delete state.simRuntime.ramMemory[id];
+    }
 
     const isTransientSwitch =
       (target?.type === 'SWITCH_SPST' && key === 'closed') ||
@@ -697,6 +703,7 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       color: colorArg || state.wireColor,
     };
     const nextWires = [...state.wires, wire];
+    state.simRuntime.waveformStats = {};
     const res = solveCircuitStep({ components: state.components, wires: nextWires }, state.simRuntime, 0, {
       zeroDtMode: 'holdState',
     });
@@ -724,6 +731,7 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
     } else {
       nextWires = state.wires.filter((w) => w.id !== id);
     }
+    state.simRuntime.waveformStats = {};
     const res = solveCircuitStep({ components: nextComponents, wires: nextWires }, state.simRuntime, 0, {
       zeroDtMode: 'holdState',
     });
@@ -755,7 +763,12 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
     for (const c of state.components) {
       if (c.type === 'LOGIC_IN' || c.type === 'CLOCK' || c.type === 'IC_PORT_IN') {
         buckets[0].push(c);
-      } else if (c.type === 'LOGIC_OUT' || c.type === 'HEX_DISPLAY' || c.type === 'IC_PORT_OUT') {
+      } else if (
+        c.type === 'LOGIC_OUT' ||
+        c.type === 'HEX_DISPLAY' ||
+        c.type === 'NIXIE_TUBE' ||
+        c.type === 'IC_PORT_OUT'
+      ) {
         buckets[3].push(c);
       } else {
         const cat = COMPONENT_CATALOG[c.type].category;

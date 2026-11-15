@@ -28,6 +28,7 @@ export interface EngineCallbacks {
     wireTelemetryById: Record<string, WireTelemetry>;
     isRunning: boolean;
     simTime: number;
+    timeScale?: number;
     wiringDraftFrom: PinRef | null;
     show3DLabels: boolean;
     highlightedIds?: string[];
@@ -51,6 +52,7 @@ interface WireMeshRecord {
   mesh: THREE.Mesh;
   curve: THREE.CatmullRomCurve3;
   particles: THREE.Mesh[];
+  particleMat: THREE.MeshBasicMaterial;
   phases: number[];
 }
 
@@ -67,6 +69,7 @@ export class Workbench3DEngine {
   private resizeObserver: ResizeObserver;
   private animFrameId = 0;
   private lastTimestamp = 0;
+  private acVisualClock = 0;
   private disposed = false;
 
   private compHandles = new Map<string, ComponentMeshHandle>();
@@ -564,16 +567,16 @@ export class Workbench3DEngine {
 
     const particles: THREE.Mesh[] = [];
     const phases: number[] = [];
+    const particleMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
     for (let i = 0; i < 3; i++) {
-      const pMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
-      const pm = new THREE.Mesh(this.particleGeom, pMat);
+      const pm = new THREE.Mesh(this.particleGeom, particleMat);
       pm.visible = false;
       this.wireGroup.add(pm);
       particles.push(pm);
-      phases.push(i / 3);
+      phases.push((i + 0.5) / 3);
     }
 
-    return { wire, mesh, curve, particles, phases };
+    return { wire, mesh, curve, particles, particleMat, phases };
   }
 
   private disposeWireRecord(rec: WireMeshRecord): void {
@@ -581,9 +584,9 @@ export class Workbench3DEngine {
     (rec.mesh.material as THREE.Material).dispose();
     this.wireGroup.remove(rec.mesh);
     for (const p of rec.particles) {
-      (p.material as THREE.Material).dispose();
       this.wireGroup.remove(p);
     }
+    rec.particleMat.dispose();
   }
 
   private rebuildWiresConnectedTo(componentId: string): void {
@@ -708,6 +711,10 @@ export class Workbench3DEngine {
     }
 
     // Update wire highlights & animated current flow particles
+    if (state.isRunning) {
+      this.acVisualClock += dt;
+    }
+    const timeScale = Math.max(0.05, state.timeScale ?? 1);
     for (const [wid, rec] of this.wireRecords.entries()) {
       const isSelected = state.selected?.kind === 'wire' && state.selected.id === wid;
       const mat = rec.mesh.material as THREE.MeshStandardMaterial;
@@ -715,21 +722,51 @@ export class Workbench3DEngine {
       mat.emissiveIntensity = isSelected ? 0.65 : 0;
 
       const wt = state.wireTelemetryById[wid];
-      const current = wt?.current ?? 0;
-      const absI = Math.abs(current);
-      if (absI > 1e-4 && state.isRunning) {
-        const speed =
-          Math.sign(current) * Math.min(1.6, 0.25 + Math.log10(1 + absI * 1000) * 0.42);
-        for (let i = 0; i < rec.particles.length; i++) {
-          let ph = (rec.phases[i] + speed * dt) % 1;
-          if (ph < 0) ph += 1;
-          rec.phases[i] = ph;
-          const pt = rec.curve.getPointAt(ph);
+      const isAcWire = Boolean(wt?.isAc && (wt.iRms ?? 0) > 1e-4);
+
+      if (state.isRunning && isAcWire && wt) {
+        const effI = wt.iRms ?? Math.abs(wt.current);
+        const acFreq = wt.acFrequency ?? 50;
+        const theta =
+          acFreq <= 2.5
+            ? 2 * Math.PI * acFreq * state.simTime
+            : 2 * Math.PI * Math.min(2.2, 1.35 * Math.cbrt(timeScale)) * this.acVisualClock;
+        const waveSin = Math.sin(theta);
+        const waveCos = Math.cos(theta);
+        const amp = Math.min(0.145, 0.065 + Math.log10(1 + effI * 1000) * 0.032);
+        rec.particleMat.color.setHex(waveCos >= 0 ? 0x38bdf8 : 0xfbbf24);
+        const pulseScale = 0.85 + 0.35 * Math.abs(waveCos);
+        const n = rec.particles.length;
+        for (let i = 0; i < n; i++) {
+          const basePhase = (i + 0.5) / n;
+          const u = Math.max(0.02, Math.min(0.98, basePhase + amp * waveSin));
+          const pt = rec.curve.getPointAt(u);
           rec.particles[i].position.copy(pt);
+          rec.particles[i].scale.setScalar(pulseScale);
           rec.particles[i].visible = true;
         }
       } else {
-        for (const p of rec.particles) p.visible = false;
+        const dcCurrent =
+          wt?.dcMean !== undefined && Math.abs(wt.dcMean) > 1e-4
+            ? wt.dcMean
+            : (wt?.current ?? 0);
+        const absI = Math.abs(dcCurrent);
+        if (absI > 1e-4 && state.isRunning) {
+          rec.particleMat.color.setHex(0xfef08a);
+          const speed =
+            Math.sign(dcCurrent) * Math.min(1.6, 0.25 + Math.log10(1 + absI * 1000) * 0.42);
+          for (let i = 0; i < rec.particles.length; i++) {
+            let ph = (rec.phases[i] + speed * dt) % 1;
+            if (ph < 0) ph += 1;
+            rec.phases[i] = ph;
+            const pt = rec.curve.getPointAt(ph);
+            rec.particles[i].position.copy(pt);
+            rec.particles[i].scale.setScalar(1);
+            rec.particles[i].visible = true;
+          }
+        } else {
+          for (const p of rec.particles) p.visible = false;
+        }
       }
     }
 

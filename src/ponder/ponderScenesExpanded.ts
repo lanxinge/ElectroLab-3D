@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { evaluateAlu4Bit } from '../engine/mnaSolver';
 import {
   buildCopperTrack,
   buildCreatePedestal,
@@ -720,6 +721,436 @@ export const buildTimer555Diorama: PonderDioramaBuilder = () => {
         { label: '窗口门限 [1/3, 2/3]', value: `[${(vcc / 3).toFixed(2)}V, ${((2 * vcc) / 3).toFixed(2)}V]`, accent: 'amber' },
         { label: '多谐频率 / 周期', value: `${(1 / tPeriod).toFixed(2)} Hz / ${(tPeriod * 1000).toFixed(1)}ms`, accent: 'sky' },
         { label: '当前相位输出', value: high ? `HIGH (${vcc.toFixed(1)}V · 充电)` : 'LOW (0V · DIS放电)', accent: high ? 'emerald' : 'rose' },
+      ];
+    },
+  };
+};
+
+export const buildNixieTubeDiorama: PonderDioramaBuilder = () => {
+  const root = buildCreatePedestal();
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.85, 0.92, 0.28, 24),
+    makeDarkMetalMaterial(0x1c1917)
+  );
+  base.position.set(0, 0.14, 0);
+  const collar = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.88, 0.88, 0.08, 24),
+    makeBrassMaterial(0xd97706)
+  );
+  collar.position.set(0, 0.29, 0);
+
+  const glassEnv = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.76, 0.76, 1.55, 24, 1, false),
+    makeGlassMaterial(0xffedd5, 0.22)
+  );
+  glassEnv.position.set(0, 1.1, 0);
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(0.76, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2),
+    makeGlassMaterial(0xffedd5, 0.22)
+  );
+  dome.position.set(0, 1.87, 0);
+
+  const anodeMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.64, 0.64, 1.38, 12, 3, true),
+    new THREE.MeshStandardMaterial({ color: 0xb45309, wireframe: true, transparent: true, opacity: 0.42 })
+  );
+  anodeMesh.position.set(0, 1.1, 0);
+
+  // Depth-stacked 10 cathode slices inside the glass envelope
+  const cathodeSlices: Array<{ mat: THREE.MeshStandardMaterial; mesh: THREE.Mesh }> = [];
+  for (let idx = 0; idx < 10; idx++) {
+    const mat = makeEmissiveMaterial(0x64748b, 0.08);
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.88, 0.03), mat);
+    frame.position.set(0, 1.1, -0.34 + idx * 0.075);
+    cathodeSlices.push({ mat, mesh: frame });
+    root.add(frame);
+  }
+
+  const plasmaMat = new THREE.MeshBasicMaterial({ color: 0xff7b24, transparent: true, opacity: 0.25 });
+  const plasmaGlow = new THREE.Mesh(new THREE.SphereGeometry(0.42, 16, 14), plasmaMat);
+  plasmaGlow.position.set(0, 1.1, 0);
+
+  const inBits: Array<ReturnType<typeof buildLampTower>> = [];
+  for (let i = 0; i < 4; i++) {
+    const t = buildLampTower(-1.45, -0.66 + i * 0.44, 0.62, 0x38bdf8);
+    inBits.push(t);
+    root.add(t.group);
+  }
+
+  root.add(base, collar, anodeMesh, plasmaGlow, glassEnv, dome);
+
+  return {
+    root,
+    update: (elapsed, _s, _p, params) => {
+      const val = Math.round(params.digit ?? 8) & 15;
+      const blank = (params.bcdBlank ?? 0) >= 0.5 && val > 9;
+      const activeIdx = val % 10;
+      const flicker = 0.92 + 0.08 * Math.sin(elapsed * 18);
+      for (let i = 0; i < 4; i++) {
+        const bit = (val >> (3 - i)) & 1;
+        inBits[i].setLit(bit === 1, 0x38bdf8, 0.85);
+      }
+      cathodeSlices.forEach((s, idx) => {
+        const isLit = !blank && idx === activeIdx;
+        s.mat.color.setHex(isLit ? 0xff9d3b : 0x475569);
+        s.mat.emissive.setHex(isLit ? 0xff5e1a : 0x0f172a);
+        s.mat.emissiveIntensity = isLit ? 1.75 * flicker : 0.05;
+        s.mesh.scale.setScalar(isLit ? 1.08 : 0.96);
+      });
+      plasmaMat.opacity = blank ? 0.02 : 0.26 * flicker;
+      plasmaGlow.position.z = -0.34 + activeIdx * 0.075;
+    },
+    getLiveReadout: (_e, _s, params) => {
+      const val = Math.round(params.digit ?? 8) & 15;
+      const blank = (params.bcdBlank ?? 0) >= 0.5 && val > 9;
+      return [
+        { label: '辉光管当前显数', value: blank ? '熄灭 (BCD >9)' : `${val.toString(16).toUpperCase()} (${val})`, accent: blank ? 'rose' : 'amber' },
+        { label: '输入二进制码', value: `0b${val.toString(2).padStart(4, '0')}`, accent: 'sky' },
+      ];
+    },
+  };
+};
+
+export const buildEncoder42Diorama: PonderDioramaBuilder = () => {
+  const root = buildCreatePedestal();
+  const housing = buildGateChipHousing(1.2, 0.65, 1.35, 0xec4899);
+  housing.position.set(0, 0, 0);
+
+  const inLevers: Array<ReturnType<typeof buildToggleLever>> = [];
+  const zPos = [-0.66, -0.22, 0.22, 0.66];
+  for (let i = 0; i < 4; i++) {
+    const lv = buildToggleLever(-1.35, zPos[i], 0xec4899);
+    inLevers.push(lv);
+    root.add(lv.group);
+    root.add(buildCopperTrack([[-1.25, 0.4, zPos[i]], [-0.55, 0.4, zPos[i]]]));
+  }
+
+  const gateBar = new THREE.Mesh(
+    new THREE.BoxGeometry(0.18, 0.28, 1.55),
+    makeBrassMaterial(0xfbbf24)
+  );
+  gateBar.position.set(-0.32, 0.95, 0);
+
+  const y1Tower = buildLampTower(1.35, -0.45, 0.85, 0x22c55e);
+  const y0Tower = buildLampTower(1.35, 0, 0.85, 0x22c55e);
+  const gsTower = buildLampTower(1.35, 0.45, 0.85, 0xfbbf24);
+  const stream = buildParticleStream([[0.3, 0.55, 0], [1.25, 0.55, 0]], 8, 0x22c55e);
+
+  root.add(housing, gateBar, y1Tower.group, y0Tower.group, gsTower.group, stream.group);
+
+  return {
+    root,
+    update: (elapsed, _s, _p, params) => {
+      const i3 = (params.i3 ?? 0) >= 0.5 ? 1 : 0;
+      const i2 = (params.i2 ?? 1) >= 0.5 ? 1 : 0;
+      const i1 = (params.i1 ?? 0) >= 0.5 ? 1 : 0;
+      const i0 = (params.i0 ?? 1) >= 0.5 ? 1 : 0;
+      const bits = [i3, i2, i1, i0];
+      bits.forEach((b, idx) => inLevers[idx].setActive(b === 1));
+
+      const gs = i3 || i2 || i1 || i0 ? 1 : 0;
+      const y1 = i3 || i2 ? 1 : 0;
+      const y0 = i3 || (!i2 && i1) ? 1 : 0;
+      const winIdx = i3 ? 0 : i2 ? 1 : i1 ? 2 : i0 ? 3 : -1;
+      gateBar.position.z = winIdx >= 0 ? zPos[winIdx] * 0.45 : 0;
+
+      y1Tower.setLit(y1 === 1, 0x22c55e, 1.0);
+      y0Tower.setLit(y0 === 1, 0x22c55e, 1.0);
+      gsTower.setLit(gs === 1, 0xfbbf24, 1.0);
+      stream.update(elapsed, gs ? 2.0 : 0.4, gs === 1, false, 0x22c55e);
+    },
+    getLiveReadout: (_e, _s, params) => {
+      const i3 = (params.i3 ?? 0) >= 0.5 ? 1 : 0;
+      const i2 = (params.i2 ?? 1) >= 0.5 ? 1 : 0;
+      const i1 = (params.i1 ?? 0) >= 0.5 ? 1 : 0;
+      const i0 = (params.i0 ?? 1) >= 0.5 ? 1 : 0;
+      const gs = i3 || i2 || i1 || i0 ? 1 : 0;
+      const y1 = i3 || i2 ? 1 : 0;
+      const y0 = i3 || (!i2 && i1) ? 1 : 0;
+      return [
+        { label: '输出编码 Y₁Y₀', value: `${y1}${y0} (${(y1 << 1) | y0})`, accent: gs ? 'emerald' : 'amber' },
+        { label: '有效标志 GS', value: gs ? '1 (存在请求)' : '0 (全空闲)', accent: gs ? 'amber' : 'rose' },
+      ];
+    },
+  };
+};
+
+export const buildDecoder24Diorama: PonderDioramaBuilder = () => {
+  const root = buildCreatePedestal();
+  const housing = buildGateChipHousing(1.15, 0.62, 1.25, 0x14b8a6);
+  const lA1 = buildToggleLever(-1.35, -0.45, 0x14b8a6);
+  const lA0 = buildToggleLever(-1.35, 0, 0x14b8a6);
+  const lInh = buildToggleLever(-1.35, 0.48, 0xf43f5e);
+
+  const rotorArm = new THREE.Mesh(
+    new THREE.BoxGeometry(0.95, 0.12, 0.14),
+    makeBrassMaterial(0xfbbf24)
+  );
+  rotorArm.position.set(0.35, 0.92, 0);
+
+  const outTowers: Array<ReturnType<typeof buildLampTower>> = [];
+  const zOuts = [-0.66, -0.22, 0.22, 0.66];
+  for (let i = 0; i < 4; i++) {
+    const t = buildLampTower(1.4, zOuts[i], 0.85, 0x22c55e);
+    outTowers.push(t);
+    root.add(t.group);
+    root.add(buildCopperTrack([[0.5, 0.4, zOuts[i]], [1.35, 0.4, zOuts[i]]]));
+  }
+
+  root.add(housing, lA1.group, lA0.group, lInh.group, rotorArm);
+
+  return {
+    root,
+    update: (elapsed, _s, _p, params) => {
+      const a1 = (params.a1 ?? 1) >= 0.5 ? 1 : 0;
+      const a0 = (params.a0 ?? 0) >= 0.5 ? 1 : 0;
+      const inh = (params.inh ?? 0) >= 0.5 ? 1 : 0;
+      lA1.setActive(a1 === 1);
+      lA0.setActive(a0 === 1);
+      lInh.setActive(inh === 1);
+
+      const sel = (a1 << 1) | a0; // 0..3 -> y0..y3 at zOuts[3..0]
+      const targetAngle = ((1.5 - sel) * 0.26);
+      rotorArm.rotation.y += (targetAngle - rotorArm.rotation.y) * 0.25;
+      rotorArm.position.y = inh ? 1.15 : 0.92 + 0.03 * Math.sin(elapsed * 4);
+
+      for (let yIdx = 0; yIdx < 4; yIdx++) {
+        const active = !inh && yIdx === sel;
+        outTowers[3 - yIdx].setLit(active, 0x22c55e, 1.1);
+      }
+    },
+    getLiveReadout: (_e, _s, params) => {
+      const a1 = (params.a1 ?? 1) >= 0.5 ? 1 : 0;
+      const a0 = (params.a0 ?? 0) >= 0.5 ? 1 : 0;
+      const inh = (params.inh ?? 0) >= 0.5 ? 1 : 0;
+      const sel = (a1 << 1) | a0;
+      return [
+        { label: '地址输入 A₁A₀', value: `${a1}${a0} → Y${sel}`, accent: 'sky' },
+        { label: '独热输出 Y₃..Y₀', value: inh ? '0000 (INH=1禁止)' : `0b${(1 << sel).toString(2).padStart(4, '0')}`, accent: inh ? 'rose' : 'emerald' },
+      ];
+    },
+  };
+};
+
+export const buildMux4BitDiorama: PonderDioramaBuilder = () => {
+  const root = buildCreatePedestal();
+  const housing = buildGateChipHousing(1.25, 0.65, 1.45, 0x6366f1);
+  const selLever = buildToggleLever(-0.1, 0.92, 0xfbbf24);
+  const crossbar = new THREE.Mesh(
+    new THREE.BoxGeometry(0.18, 0.16, 1.35),
+    makeBrassMaterial(0xfbbf24)
+  );
+  crossbar.position.set(0, 0.95, 0);
+
+  const busATowers: Array<ReturnType<typeof buildLampTower>> = [];
+  const busBTowers: Array<ReturnType<typeof buildLampTower>> = [];
+  const busYTowers: Array<ReturnType<typeof buildLampTower>> = [];
+  for (let i = 0; i < 4; i++) {
+    const z = -0.54 + i * 0.36;
+    const tA = buildLampTower(-1.45, z - 0.12, 0.62, 0x38bdf8);
+    const tB = buildLampTower(-1.12, z + 0.12, 0.62, 0xa855f7);
+    const tY = buildLampTower(1.4, z, 0.85, 0x22c55e);
+    busATowers.push(tA);
+    busBTowers.push(tB);
+    busYTowers.push(tY);
+    root.add(tA.group, tB.group, tY.group);
+  }
+  const stream = buildParticleStream([[0.35, 0.55, 0], [1.3, 0.55, 0]], 10, 0x6366f1);
+  root.add(housing, selLever.group, crossbar, stream.group);
+
+  return {
+    root,
+    update: (elapsed, _s, _p, params) => {
+      const a = Math.round(params.valA ?? 5) & 15;
+      const b = Math.round(params.valB ?? 12) & 15;
+      const sel = (params.sel ?? 0) >= 0.5 ? 1 : 0;
+      const y = sel ? b : a;
+      selLever.setActive(sel === 1);
+      crossbar.position.x = sel ? -0.25 : 0.25;
+
+      for (let i = 0; i < 4; i++) {
+        const bitShift = 3 - i;
+        busATowers[i].setLit(((a >> bitShift) & 1) === 1, 0x38bdf8, 0.85);
+        busBTowers[i].setLit(((b >> bitShift) & 1) === 1, 0xa855f7, 0.85);
+        busYTowers[i].setLit(((y >> bitShift) & 1) === 1, sel ? 0xa855f7 : 0x38bdf8, 1.05);
+      }
+      stream.update(elapsed, 1.8, true, false, sel ? 0xa855f7 : 0x38bdf8);
+    },
+    getLiveReadout: (_e, _s, params) => {
+      const a = Math.round(params.valA ?? 5) & 15;
+      const b = Math.round(params.valB ?? 12) & 15;
+      const sel = (params.sel ?? 0) >= 0.5 ? 1 : 0;
+      const y = sel ? b : a;
+      return [
+        { label: '当前选通通道', value: sel ? 'SEL=1 → B[3:0]' : 'SEL=0 → A[3:0]', accent: sel ? 'violet' : 'sky' },
+        { label: '输出总线 Y[3:0]', value: `0x${y.toString(16).toUpperCase()} (${y})`, accent: 'emerald' },
+      ];
+    },
+  };
+};
+
+export const buildRegister4BitDiorama: PonderDioramaBuilder = () => {
+  const root = buildCreatePedestal();
+  const housing = buildGateChipHousing(1.25, 0.65, 1.38, 0x0ea5e9);
+  const clkHammer = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.16, 0.16, 0.42, 16),
+    makeBrassMaterial(0xfbbf24)
+  );
+  clkHammer.position.set(0, 1.15, 0.48);
+
+  const weGate = buildToggleLever(-1.35, 0.58, 0x22c55e);
+  const rstBtn = buildToggleLever(-1.35, -0.58, 0xf43f5e);
+  const outBars: Array<ReturnType<typeof buildLevelBar>> = [];
+  for (let i = 0; i < 4; i++) {
+    const bar = buildLevelBar(1.35, -0.54 + i * 0.36, 1.1, 0x38bdf8);
+    outBars.push(bar);
+    root.add(bar.group);
+  }
+
+  let latched = 0;
+  let prevPulse = false;
+  root.add(housing, clkHammer, weGate.group, rstBtn.group);
+
+  return {
+    root,
+    update: (elapsed, _s, _p, params) => {
+      const d = Math.round(params.dVal ?? 9) & 15;
+      const we = (params.we ?? 1) >= 0.5;
+      const rst = (params.rst ?? 0) >= 0.5;
+      const pulse = Math.sin(elapsed * 2.4) > 0;
+      weGate.setActive(we);
+      rstBtn.setActive(rst);
+      clkHammer.position.y = pulse ? 0.92 : 1.24;
+
+      if (rst) {
+        latched = 0;
+      } else if (pulse && !prevPulse && we) {
+        latched = d;
+      }
+      prevPulse = pulse;
+
+      for (let i = 0; i < 4; i++) {
+        const bit = (latched >> (3 - i)) & 1;
+        outBars[i].setRatio(bit ? 0.95 : 0.12, bit ? 0x22c55e : 0x334155);
+      }
+    },
+    getLiveReadout: (_e, _s, params) => {
+      const d = Math.round(params.dVal ?? 9) & 15;
+      const we = (params.we ?? 1) >= 0.5;
+      const rst = (params.rst ?? 0) >= 0.5;
+      return [
+        { label: '输入准备值 D[3:0]', value: `0x${d.toString(16).toUpperCase()} (${d})`, accent: 'sky' },
+        { label: '锁存使能状态', value: rst ? 'RST=1 强制清零' : we ? 'WE=1 时钟上升沿更新' : 'WE=0 保持原值', accent: rst ? 'rose' : we ? 'emerald' : 'amber' },
+      ];
+    },
+  };
+};
+
+export const buildAlu4BitDiorama: PonderDioramaBuilder = () => {
+  const root = buildCreatePedestal();
+  const core = buildGateChipHousing(1.25, 0.72, 1.38, 0xf59e0b);
+  const opDial = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.28),
+    makeEmissiveMaterial(0xf59e0b, 1.1)
+  );
+  opDial.position.set(0, 1.18, 0);
+
+  const barA = buildLevelBar(-1.45, -0.45, 1.35, 0x38bdf8);
+  const barB = buildLevelBar(-1.45, 0.45, 1.35, 0xa855f7);
+  const barF = buildLevelBar(1.35, -0.25, 1.35, 0x22c55e);
+  const coutBeacon = buildLampTower(1.35, 0.35, 0.85, 0xfbbf24);
+  const zeroBeacon = buildLampTower(1.35, 0.72, 0.85, 0xf43f5e);
+  const track = buildCopperTrack([[-1.3, 0.45, 0], [0, 0.45, 0], [1.25, 0.45, 0]]);
+  const stream = buildParticleStream([[-1.2, 0.55, 0], [0, 0.55, 0], [1.2, 0.55, 0]], 10, 0xf59e0b);
+
+  root.add(core, opDial, barA.group, barB.group, barF.group, coutBeacon.group, zeroBeacon.group, track, stream.group);
+
+  return {
+    root,
+    update: (elapsed, _s, _p, params) => {
+      const a = Math.round(params.valA ?? 6) & 15;
+      const b = Math.round(params.valB ?? 6) & 15;
+      const op = Math.round(params.op ?? 1) & 3;
+      const { result, cout, zero } = evaluateAlu4Bit(a, b, op);
+
+      barA.setRatio(Math.max(0.08, a / 15), 0x38bdf8);
+      barB.setRatio(Math.max(0.08, b / 15), 0xa855f7);
+      barF.setRatio(Math.max(0.08, result / 15), zero ? 0xfbbf24 : 0x22c55e);
+      coutBeacon.setLit(cout === 1, 0xfbbf24, 1.2);
+      zeroBeacon.setLit(zero === 1, 0xf43f5e, 1.35);
+
+      opDial.rotation.y = elapsed * 1.2 + op * (Math.PI / 2);
+      stream.update(elapsed, 1.9, true, false, zero ? 0xfbbf24 : 0xf59e0b);
+    },
+    getLiveReadout: (_e, _s, params) => {
+      const a = Math.round(params.valA ?? 6) & 15;
+      const b = Math.round(params.valB ?? 6) & 15;
+      const op = Math.round(params.op ?? 1) & 3;
+      const { result, cout, zero, opName } = evaluateAlu4Bit(a, b, op);
+      return [
+        { label: `指令 ${opName}`, value: `A=${a}, B=${b} → F=${result} (0x${result.toString(16).toUpperCase()})`, accent: 'amber' },
+        { label: '标志位 COUT / ZERO', value: `C=${cout} · Z=${zero}`, accent: zero ? 'rose' : 'emerald' },
+      ];
+    },
+  };
+};
+
+export const buildRam16x4Diorama: PonderDioramaBuilder = () => {
+  const root = buildCreatePedestal();
+  const basePlate = new THREE.Mesh(
+    new THREE.BoxGeometry(2.6, 0.16, 2.2),
+    makeDarkMetalMaterial(0x0f172a)
+  );
+  basePlate.position.set(0, 0.12, 0);
+  root.add(basePlate);
+
+  // 4x4 grid of 16 addressable 4-bit memory towers
+  const cells: Array<{ bar: ReturnType<typeof buildLevelBar> }> = [];
+  const memState = Array.from({ length: 16 }, (_, idx) => (idx * 3 + 1) & 15);
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 4; col++) {
+      const x = -0.82 + col * 0.55;
+      const z = -0.72 + row * 0.48;
+      const bar = buildLevelBar(x, z, 1.05, 0x10b981);
+      cells.push({ bar });
+      root.add(bar.group);
+    }
+  }
+
+  const cursorRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.22, 0.035, 10, 24),
+    makeBrassMaterial(0xfbbf24)
+  );
+  cursorRing.rotation.x = Math.PI / 2;
+  cursorRing.position.set(-0.82, 0.35, -0.72);
+  root.add(cursorRing);
+
+  return {
+    root,
+    update: (elapsed, _s, _p, params) => {
+      const addr = Math.round(params.addr ?? 5) & 15;
+      const din = Math.round(params.dataIn ?? 11) & 15;
+      const we = (params.we ?? 0) >= 0.5;
+      if (we) memState[addr] = din;
+
+      const row = Math.floor(addr / 4);
+      const col = addr % 4;
+      cursorRing.position.set(-0.82 + col * 0.55, 0.36 + 0.05 * Math.sin(elapsed * 5), -0.72 + row * 0.48);
+
+      cells.forEach((cell, idx) => {
+        const val = memState[idx] & 15;
+        const isTarget = idx === addr;
+        cell.bar.setRatio(Math.max(0.08, val / 15), isTarget ? (we ? 0x38bdf8 : 0xfbbf24) : 0x10b981);
+      });
+    },
+    getLiveReadout: (_e, _s, params) => {
+      const addr = Math.round(params.addr ?? 5) & 15;
+      const din = Math.round(params.dataIn ?? 11) & 15;
+      const we = (params.we ?? 0) >= 0.5;
+      const q = we ? din : memState[addr];
+      return [
+        { label: `寻址单元 MEM[0x${addr.toString(16).toUpperCase()}]`, value: `0x${q.toString(16).toUpperCase()} (0b${q.toString(2).padStart(4, '0')})`, accent: 'emerald' },
+        { label: '存取模式', value: we ? 'WE=1 同步写入锁定' : 'WE=0 异步高速读出', accent: we ? 'sky' : 'amber' },
       ];
     },
   };

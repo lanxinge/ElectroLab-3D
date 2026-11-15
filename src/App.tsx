@@ -13,6 +13,7 @@ import { Schematic2DSidebar } from './components/Schematic2DSidebar';
 import { PropertyInspector } from './components/PropertyInspector';
 import { BottomAnalysisDock } from './components/BottomAnalysisDock';
 import { ForumView } from './components/ForumView';
+import { LandingHomeView } from './components/LandingHomeView';
 import { AuthModal } from './components/AuthModal';
 import { PublishCircuitModal } from './components/PublishCircuitModal';
 import { MyProjectsModal } from './components/MyProjectsModal';
@@ -26,8 +27,14 @@ import { useTutorialStore } from './store/useTutorialStore';
 import { parseProjectFile } from './utils/projectFileIO';
 
 export function App() {
-  const [activeView, setActiveView] = useState<'simulator' | 'tutorial' | 'forum'>('simulator');
+  const [activeView, setActiveView] = useState<'home' | 'simulator' | 'tutorial' | 'forum'>('home');
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authInitialTab, setAuthInitialTab] = useState<'login' | 'register'>('login');
+
+  const openAuth = (tab: 'login' | 'register' = 'login') => {
+    setAuthInitialTab(tab);
+    setShowAuthModal(true);
+  };
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [showProjectsModal, setShowProjectsModal] = useState(false);
   const [forumRefreshTrigger, setForumRefreshTrigger] = useState(0);
@@ -66,7 +73,7 @@ export function App() {
   // Independent simulation runner: keeps time & waveforms advancing in 2d-only and tutorial modes too
   useSimulationRunner(activeView === 'simulator' || activeView === 'tutorial');
 
-  const handleChangeView = (nextView: 'simulator' | 'tutorial' | 'forum') => {
+  const handleChangeView = (nextView: 'home' | 'simulator' | 'tutorial' | 'forum') => {
     if (nextView === activeView) return;
     if (nextView === 'tutorial') {
       useTutorialStore.getState().enterTutorial();
@@ -74,6 +81,11 @@ export function App() {
       useTutorialStore.getState().exitTutorial(false);
     }
     setActiveView(nextView);
+  };
+
+  const handleOpenTutorialFromHome = (lessonId?: string, volume: 'all' | 'vol1' | 'vol2' = 'all') => {
+    useTutorialStore.getState().enterTutorial(lessonId, lessonId ? 0 : undefined, volume);
+    setActiveView('tutorial');
   };
 
   const startResize = (
@@ -136,12 +148,20 @@ export function App() {
       <HeaderBar
         activeView={activeView}
         onChangeView={handleChangeView}
-        onOpenAuth={() => setShowAuthModal(true)}
+        onOpenAuth={openAuth}
         onOpenPublish={() => setShowPublishModal(true)}
         onOpenProjects={() => setShowProjectsModal(true)}
       />
 
-      {activeView === 'tutorial' ? (
+      {activeView === 'home' ? (
+        <LandingHomeView
+          onOpenWorkbench={() => handleChangeView('simulator')}
+          onOpenTutorial={handleOpenTutorialFromHome}
+          onOpenForum={() => handleChangeView('forum')}
+          onOpenAuth={openAuth}
+          onOpenProjects={() => setShowProjectsModal(true)}
+        />
+      ) : activeView === 'tutorial' ? (
         <TutorialWorkspace
           onExitToSimulator={(keep) => {
             useTutorialStore.getState().exitTutorial(keep);
@@ -153,7 +173,7 @@ export function App() {
           refreshTrigger={forumRefreshTrigger}
           onForkToSimulator={() => handleChangeView('simulator')}
           onOpenPublish={() => setShowPublishModal(true)}
-          onOpenAuth={() => setShowAuthModal(true)}
+          onOpenAuth={openAuth}
         />
       ) : layoutMode === 'split' ? (
         <div
@@ -440,7 +460,9 @@ export function App() {
         </div>
       )}
 
-      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+      {showAuthModal && (
+        <AuthModal initialTab={authInitialTab} onClose={() => setShowAuthModal(false)} />
+      )}
       {showPublishModal && (
         <PublishCircuitModal
           onClose={() => setShowPublishModal(false)}
@@ -455,7 +477,7 @@ export function App() {
           onClose={() => setShowProjectsModal(false)}
           onOpenAuth={() => {
             setShowProjectsModal(false);
-            setShowAuthModal(true);
+            openAuth('login');
           }}
         />
       )}

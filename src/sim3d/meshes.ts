@@ -1458,6 +1458,229 @@ export function buildComponentMesh(comp: CircuitComponent): ComponentMeshHandle 
       break;
     }
 
+    case 'NIXIE_TUBE': {
+      // Ceramic & brass collar base
+      const collar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.46, 0.5, 0.16, 24),
+        new THREE.MeshStandardMaterial({ color: 0x1e1b18, roughness: 0.45, metalness: 0.25 })
+      );
+      collar.position.set(0.08, 0.18, 0);
+      collar.castShadow = true;
+      tagHit(collar);
+      group.add(collar);
+
+      const brassRing = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.47, 0.47, 0.04, 24),
+        new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.25, metalness: 0.85 })
+      );
+      brassRing.position.set(0.08, 0.27, 0);
+      group.add(brassRing);
+
+      // Lead traces from left D3..D0 pins to socket
+      for (const p of pins) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.05, 0.06), leadMat);
+        leg.position.set(p.offset3d[0] * 0.68, 0.12, p.offset3d[2]);
+        group.add(leg);
+      }
+
+      // Faint metallic cathode stack silhouettes inside tube
+      const meshCage = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.34, 0.34, 0.92, 14, 2, true),
+        new THREE.MeshStandardMaterial({
+          color: 0xb45309,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.32,
+        })
+      );
+      meshCage.position.set(0.08, 0.74, 0);
+      group.add(meshCage);
+
+      // Warm neon plasma aura core
+      const auraMat = new THREE.MeshBasicMaterial({
+        color: 0xff6b1a,
+        transparent: true,
+        opacity: 0.28,
+      });
+      const aura = new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 14), auraMat);
+      aura.position.set(0.08, 0.74, 0);
+      group.add(aura);
+
+      // Crisp tilted CanvasTexture glowing digit face (angled 30deg up so readable from workbench camera)
+      const nixCanvas = document.createElement('canvas');
+      nixCanvas.width = 128;
+      nixCanvas.height = 192;
+      const nixCtx = nixCanvas.getContext('2d')!;
+      const nixTex = new THREE.CanvasTexture(nixCanvas);
+      nixTex.colorSpace = THREE.SRGBColorSpace;
+      const drawNixie = (char: string, lit: boolean) => {
+        nixCtx.clearRect(0, 0, 128, 192);
+        if (lit) {
+          const grad = nixCtx.createRadialGradient(64, 96, 8, 64, 96, 68);
+          grad.addColorStop(0, 'rgba(255, 130, 35, 0.52)');
+          grad.addColorStop(0.65, 'rgba(234, 88, 12, 0.18)');
+          grad.addColorStop(1, 'rgba(234, 88, 12, 0)');
+          nixCtx.fillStyle = grad;
+          nixCtx.fillRect(0, 0, 128, 192);
+        }
+        nixCtx.textAlign = 'center';
+        nixCtx.textBaseline = 'middle';
+        nixCtx.font = 'bold 132px ui-monospace, Consolas, monospace';
+        nixCtx.shadowColor = lit ? '#ff5500' : 'transparent';
+        nixCtx.shadowBlur = lit ? 22 : 0;
+        nixCtx.fillStyle = lit ? '#ff9d3b' : '#475569';
+        nixCtx.fillText(char, 64, 102);
+        nixTex.needsUpdate = true;
+      };
+      drawNixie('0', true);
+
+      const digitPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.46, 0.68),
+        new THREE.MeshBasicMaterial({ map: nixTex, transparent: true, side: THREE.DoubleSide })
+      );
+      digitPlane.position.set(0.08, 0.75, 0.03);
+      digitPlane.rotation.x = -Math.PI / 5;
+      tagHit(digitPlane);
+      group.add(digitPlane);
+
+      // Glass cylinder envelope & exhaust tip
+      const glassMat = new THREE.MeshStandardMaterial({
+        color: 0xffedd5,
+        roughness: 0.08,
+        metalness: 0.08,
+        transparent: true,
+        opacity: 0.24,
+      });
+      const glassCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.41, 0.96, 24), glassMat);
+      glassCyl.position.set(0.08, 0.76, 0);
+      tagHit(glassCyl);
+      group.add(glassCyl);
+
+      const glassDome = new THREE.Mesh(
+        new THREE.SphereGeometry(0.41, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2),
+        glassMat
+      );
+      glassDome.position.set(0.08, 1.24, 0);
+      group.add(glassDome);
+
+      const pip = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.14, 12), glassMat);
+      pip.position.set(0.08, 1.69, 0);
+      group.add(pip);
+
+      let lastNixKey = '';
+      updateVisuals = (c, tel) => {
+        const val = Math.max(0, Math.min(15, tel?.logicState ?? 0));
+        const blanked = Boolean(c.props.bcdBlank) && val > 9;
+        const char = blanked ? '-' : val.toString(16).toUpperCase();
+        const key = `${char}|${blanked ? 0 : 1}`;
+        auraMat.opacity = blanked ? 0.04 : 0.28;
+        if (key !== lastNixKey) {
+          lastNixKey = key;
+          drawNixie(char, !blanked);
+        }
+      };
+      break;
+    }
+
+    case 'ENCODER_4_2':
+    case 'DECODER_2_4':
+    case 'MUX_4BIT':
+    case 'REGISTER_4BIT':
+    case 'ALU_4BIT':
+    case 'RAM_16X4': {
+      const chipW = Math.max(1.22, padW - 0.56);
+      const chipD = Math.max(0.95, padD - 0.34);
+      const accentHexMap: Record<string, number> = {
+        ENCODER_4_2: 0xec4899,
+        DECODER_2_4: 0x14b8a6,
+        MUX_4BIT: 0x6366f1,
+        REGISTER_4BIT: 0x0ea5e9,
+        ALU_4BIT: 0xf59e0b,
+        RAM_16X4: 0x10b981,
+      };
+      const accentHex = accentHexMap[comp.type] ?? 0x38bdf8;
+      const accentCss = `#${accentHex.toString(16).padStart(6, '0')}`;
+
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(chipW, 0.28, chipD),
+        new THREE.MeshStandardMaterial({ color: 0x0b1120, roughness: 0.4, metalness: 0.22 })
+      );
+      body.position.y = 0.22;
+      body.castShadow = true;
+      tagHit(body);
+      group.add(body);
+
+      const stripe = new THREE.Mesh(
+        new THREE.BoxGeometry(chipW - 0.08, 0.03, 0.1),
+        new THREE.MeshStandardMaterial({ color: accentHex, metalness: 0.65, roughness: 0.25 })
+      );
+      stripe.position.set(0, 0.375, -chipD / 2 + 0.09);
+      tagHit(stripe);
+      group.add(stripe);
+
+      const notch = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.09, 0.09, 0.04, 14),
+        new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.85, roughness: 0.2 })
+      );
+      notch.position.set(-chipW * 0.38, 0.37, -chipD / 2 + 0.14);
+      group.add(notch);
+
+      for (const p of pins) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.07, 0.07), leadMat);
+        leg.position.set(p.offset3d[0] * 0.76, 0.14, p.offset3d[2]);
+        group.add(leg);
+      }
+
+      // Live bit / flag status LEDs along right edge of chip cap
+      const ledPins = pins.filter((p) => p.role === 'logic_out');
+      const ledMats: Array<{ pinId: string; mat: THREE.MeshStandardMaterial }> = [];
+      ledPins.forEach((p) => {
+        const lMat = new THREE.MeshStandardMaterial({
+          color: 0x334155,
+          emissive: accentHex,
+          emissiveIntensity: 0.12,
+        });
+        const led = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 10), lMat);
+        led.position.set(chipW * 0.39, 0.38, p.offset3d[2] * 0.78);
+        group.add(led);
+        ledMats.push({ pinId: p.id, mat: lMat });
+      });
+
+      const { texture, canvas, ctx } = createTextTexture(
+        '#020617',
+        accentCss,
+        spec.shortName,
+        comp.label,
+        256,
+        192
+      );
+      const topLabel = new THREE.Mesh(
+        new THREE.PlaneGeometry(chipW - 0.28, chipD - 0.34),
+        new THREE.MeshBasicMaterial({ map: texture })
+      );
+      topLabel.rotation.x = -Math.PI / 2;
+      topLabel.position.set(-0.04, 0.382, 0.05);
+      tagHit(topLabel);
+      group.add(topLabel);
+
+      let lastVlsiDisp = '';
+      updateVisuals = (_c, tel) => {
+        const pv = tel?.pinVoltages ?? {};
+        for (const item of ledMats) {
+          const on = (pv[item.pinId] ?? 0) >= 2.5;
+          item.mat.color.setHex(on ? (item.pinId === 'zero' || item.pinId === 'cout' ? 0xfbbf24 : 0x4ade80) : 0x334155);
+          item.mat.emissiveIntensity = on ? 1.5 : 0.08;
+        }
+        const sub = tel?.extraInfo?.slice(0, 18) || comp.label;
+        const key = `${spec.shortName}|${sub}`;
+        if (key !== lastVlsiDisp) {
+          lastVlsiDisp = key;
+          drawTextCanvas(ctx, canvas, texture, '#020617', accentCss, spec.shortName, sub);
+        }
+      };
+      break;
+    }
+
     case 'TIMER_555': {
       const chip = new THREE.Mesh(
         new THREE.BoxGeometry(1.22, 0.3, 0.96),

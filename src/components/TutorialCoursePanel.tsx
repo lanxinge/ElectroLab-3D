@@ -28,7 +28,16 @@ export const TutorialCoursePanel: React.FC = () => {
   const currentStageIndex = useTutorialStore((s) => s.currentStageIndex);
   const completedStageIds = useTutorialStore((s) => s.completedStageIds);
   const catalogOpen = useTutorialStore((s) => s.catalogOpen);
-  const [volumeFilter, setVolumeFilter] = useState<'all' | 'vol1' | 'vol2'>('all');
+  const preferredVolume = useTutorialStore((s) => s.preferredVolume);
+  const setPreferredVolume = useTutorialStore((s) => s.setPreferredVolume);
+  const [volumeFilter, setVolumeFilterState] = useState<'all' | 'vol1' | 'vol2'>(preferredVolume);
+  React.useEffect(() => {
+    setVolumeFilterState(preferredVolume);
+  }, [preferredVolume]);
+  const setVolumeFilter = (next: 'all' | 'vol1' | 'vol2') => {
+    setVolumeFilterState(next);
+    setPreferredVolume(next);
+  };
 
   const selectLesson = useTutorialStore((s) => s.selectLesson);
   const selectStage = useTutorialStore((s) => s.selectStage);
@@ -44,6 +53,7 @@ export const TutorialCoursePanel: React.FC = () => {
   const telemetryById = useCircuitStore((s) => s.telemetryById);
   const simTime = useCircuitStore((s) => s.simTime);
   const transientAnchor = useCircuitStore((s) => s.transientAnchor);
+  const simRuntime = useCircuitStore((s) => s.simRuntime);
   const setSelected = useCircuitStore((s) => s.setSelected);
   const updateComponentProp = useCircuitStore((s) => s.updateComponentProp);
   const resetFuse = useCircuitStore((s) => s.resetFuse);
@@ -65,8 +75,9 @@ export const TutorialCoursePanel: React.FC = () => {
       hasSwitched: transientAnchor.hasSwitched,
       initialCapVoltages: transientAnchor.initialCapVoltages,
       initialIndCurrents: transientAnchor.initialIndCurrents,
+      waveformStatsById: simRuntime?.waveformStats ?? {},
     }),
-    [stage.circuit, components, wires, telemetryById, simTime, transientAnchor]
+    [stage.circuit, components, wires, telemetryById, simTime, transientAnchor, simRuntime]
   );
 
   const formulaRows = useMemo(
@@ -503,67 +514,110 @@ export const TutorialCoursePanel: React.FC = () => {
         )}
 
         {/* Checkpoint Card */}
-        {stage.checkpoint && checkpointRes && (
-          <div
-            data-testid="tutorial-checkpoint-card"
-            className={`rounded-lg border p-2.5 space-y-2 ${
-              checkpointRes.passed
-                ? 'bg-emerald-500/10 border-emerald-500/50'
-                : 'bg-amber-500/10 border-amber-500/40'
-            }`}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 font-semibold text-slate-100">
-                <Zap
-                  className={`w-3.5 h-3.5 ${
-                    checkpointRes.passed ? 'text-emerald-400' : 'text-amber-400'
-                  }`}
-                />
-                {stage.checkpoint.title}
-              </div>
-              <span
-                data-testid="tutorial-checkpoint-status"
-                className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${
-                  checkpointRes.passed
-                    ? 'bg-emerald-500 text-slate-950'
-                    : 'bg-amber-500/25 text-amber-200'
-                }`}
-              >
-                {checkpointRes.passed ? '已通关 ✓' : '待完成'}
-              </span>
-            </div>
-
-            <p className="text-[11px] text-slate-200 leading-relaxed">
-              {stage.checkpoint.instruction}
-            </p>
-
+        {stage.checkpoint && checkpointRes && (() => {
+          const isStageCompleted =
+            completedStageIds.includes(stage.id) || checkpointRes.passed;
+          const isLivePassed = checkpointRes.passed;
+          return (
             <div
-              className={`text-[11px] font-mono px-2 py-1 rounded bg-slate-950/70 border ${
-                checkpointRes.passed
-                  ? 'border-emerald-500/30 text-emerald-300'
-                  : 'border-slate-800 text-amber-200'
+              data-testid="tutorial-checkpoint-card"
+              className={`rounded-lg border p-2.5 space-y-2 ${
+                isLivePassed
+                  ? 'bg-emerald-500/10 border-emerald-500/50'
+                  : isStageCompleted
+                  ? 'bg-sky-500/10 border-sky-500/40'
+                  : 'bg-amber-500/10 border-amber-500/40'
               }`}
             >
-              {checkpointRes.message}
-            </div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 font-semibold text-slate-100">
+                  <Zap
+                    className={`w-3.5 h-3.5 ${
+                      isLivePassed
+                        ? 'text-emerald-400'
+                        : isStageCompleted
+                        ? 'text-sky-400'
+                        : 'text-amber-400'
+                    }`}
+                  />
+                  {stage.checkpoint.title}
+                </div>
+                <span
+                  data-testid="tutorial-checkpoint-status"
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                    isStageCompleted
+                      ? 'bg-emerald-500 text-slate-950'
+                      : 'bg-amber-500/25 text-amber-200'
+                  }`}
+                >
+                  {isStageCompleted ? '本关已完成 ✓' : '待完成'}
+                </span>
+              </div>
 
-            {stage.checkpoint.hint && !checkpointRes.passed && (
-              <div className="text-[10px] text-slate-400">提示：{stage.checkpoint.hint}</div>
-            )}
+              <p className="text-[11px] text-slate-200 leading-relaxed">
+                {stage.checkpoint.instruction}
+              </p>
 
-            {stage.checkpoint.autoDemo && (
-              <button
-                type="button"
-                data-testid="tutorial-autodemo-btn"
-                onClick={() => runCheckpointAutoDemo()}
-                className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-semibold transition"
+              <div
+                data-testid="tutorial-live-status"
+                className={`rounded bg-slate-950/70 border px-2 py-1.5 space-y-1 ${
+                  isLivePassed
+                    ? 'border-emerald-500/30'
+                    : isStageCompleted
+                    ? 'border-sky-500/30'
+                    : 'border-slate-800'
+                }`}
               >
-                <Play className="w-3 h-3" />
-                {stage.checkpoint.autoDemo.buttonLabel}
-              </button>
-            )}
-          </div>
-        )}
+                <div className="flex items-center justify-between gap-2 text-[10px]">
+                  <span className="text-slate-400 font-medium">当前实验状态</span>
+                  <span
+                    data-testid="tutorial-live-state-badge"
+                    className={`px-1.5 py-0.5 rounded font-semibold ${
+                      isLivePassed
+                        ? 'bg-emerald-500/20 text-emerald-300'
+                        : isStageCompleted
+                        ? 'bg-sky-500/20 text-sky-300'
+                        : 'bg-amber-500/20 text-amber-200'
+                    }`}
+                  >
+                    {isLivePassed
+                      ? '达标运行中 ✓'
+                      : isStageCompleted
+                      ? '自由调节 / 脉冲已结束（通关已保留）'
+                      : '待达标'}
+                  </span>
+                </div>
+                <div
+                  className={`text-[11px] font-mono ${
+                    isLivePassed
+                      ? 'text-emerald-300'
+                      : isStageCompleted
+                      ? 'text-sky-200'
+                      : 'text-amber-200'
+                  }`}
+                >
+                  {checkpointRes.message}
+                </div>
+              </div>
+
+              {stage.checkpoint.hint && !isLivePassed && (
+                <div className="text-[10px] text-slate-400">提示：{stage.checkpoint.hint}</div>
+              )}
+
+              {stage.checkpoint.autoDemo && (
+                <button
+                  type="button"
+                  data-testid="tutorial-autodemo-btn"
+                  onClick={() => runCheckpointAutoDemo()}
+                  className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-semibold transition"
+                >
+                  <Play className="w-3 h-3" />
+                  {stage.checkpoint.autoDemo.buttonLabel}
+                </button>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Pinned Footer Navigation */}

@@ -477,6 +477,12 @@ export function analyzeDigitalCircuit(
           pinId: 'cout',
         });
       } else if (
+        c.type === 'ENCODER_4_2' ||
+        c.type === 'DECODER_2_4' ||
+        c.type === 'MUX_4BIT' ||
+        c.type === 'ALU_4BIT' ||
+        c.type === 'REGISTER_4BIT' ||
+        c.type === 'RAM_16X4' ||
         c.type === 'CUSTOM_TRUTH_8' ||
         c.type === 'CUSTOM_TRUTH_16' ||
         c.type === 'CUSTOM_IC'
@@ -500,6 +506,8 @@ export function analyzeDigitalCircuit(
       c.type === 'D_FF' ||
       c.type === 'JK_FF' ||
       c.type === 'COUNTER_4BIT' ||
+      c.type === 'REGISTER_4BIT' ||
+      c.type === 'RAM_16X4' ||
       c.type === 'CLOCK' ||
       c.type === 'TIMER_555'
   );

@@ -16,7 +16,14 @@ export type ExpandedPonderType =
   | 'IC_PORT_IN'
   | 'IC_PORT_OUT'
   | 'CUSTOM_IC'
-  | 'TIMER_555';
+  | 'TIMER_555'
+  | 'NIXIE_TUBE'
+  | 'ENCODER_4_2'
+  | 'DECODER_2_4'
+  | 'MUX_4BIT'
+  | 'REGISTER_4BIT'
+  | 'ALU_4BIT'
+  | 'RAM_16X4';
 
 export const PONDER_EXPANDED_SPECS: Record<ExpandedPonderType, PonderModuleSpec> = {
   INF_SOURCE: {
@@ -849,6 +856,395 @@ export const PONDER_EXPANDED_SPECS: Record<ExpandedPonderType, PonderModuleSpec>
         title: '从模拟定时桥接到数字计数体系',
         narration: 'OUT 端干脆利落的 0V/VCC 脉冲可以直接接入 D 触发器或四位计数器 CLK 脚，打通模拟时钟与数字时序电路！',
         camera: { position: [-3.5, 2.8, 3.9], target: [0, 0.65, 0] },
+      },
+    ],
+  },
+
+  NIXIE_TUBE: {
+    type: 'NIXIE_TUBE',
+    title: '复古辉光数码管 (IN-14 Nixie Tube)',
+    englishTitle: 'Cold-Cathode Neon Nixie Display Tube',
+    badge: '辉光放电显示 · 0–9/A–F',
+    summary: '在低压惰性氖氩混气玻璃泡内层叠 10~16 片独立金属丝字符阴极，利用辉光放电让当前选通字符泛出温暖明亮的霓虹橙光，不依赖分段拼接！',
+    formulas: [
+      { expr: 'Val = 8·D₃ + 4·D₂ + 2·D₁ + D₀  (0 ~ 15)', note: '四位二进制加权输入直接译码选通对应发光字符' },
+      { expr: '辉光启辉压降 V_glow ≈ 140V~170V（本平台集成内置升压驱动）', note: '只有选中阴极产生橙红电离辉光鞘层' },
+    ],
+    keyTakeaways: [
+      '与七段数码管“拼凑笔画”不同，辉光管每层阴极都是完整冲压成形的独立立体金属丝字形。',
+      '因为数字片在管内有前后景深排序，数字跳变时会呈现出独特的空间纵深悬浮感。',
+      '开启“十进制 BCD 消隐”后，输入 10~15 会自动熄灯保护或作为溢出空白提示。',
+    ],
+    controls: [
+      { key: 'digit', label: '显示数字码 D₃..D₀', kind: 'slider', min: 0, max: 15, step: 1, unit: '', defaultValue: 8 },
+      { key: 'bcdBlank', label: 'BCD >9 消隐', kind: 'toggle', defaultValue: 0 },
+    ],
+    callouts: [
+      { id: 'cathodes', title: '层叠数字阴极丝阵', detail: '深度方向依次排列的独立金属字形阴极，选中层激发橙红等离子辉光', worldPos: [0, 0.95, 0.15], color: '#ff7b24' },
+      { id: 'anode', title: '蜂巢金属阳极笼', detail: '透明蜂巢网栅包围阴极形成均匀电场，保障视觉通透性', worldPos: [-0.55, 1.05, 0], color: '#f59e0b' },
+      { id: 'socket', title: '瓷座与 4 线驱动基座', detail: '集成二进制译码逻辑，直接以 5V TTL 电平点亮对应字极', worldPos: [0, 0.25, 0], color: '#38bdf8' },
+    ],
+    steps: [
+      {
+        id: 'step-1',
+        title: '层叠独立的冷阴极金属字模',
+        narration: '透过玻壳与黄铜蜂巢网栅，你可以看到前后排列的 10 个数字阴极丝：每一次只需给其中一个字符供电即可整字发光。',
+        renderNarration: (p) => {
+          const val = Math.round(p.digit ?? 8) & 15;
+          const blank = (p.bcdBlank ?? 0) >= 0.5 && val > 9;
+          return `当前输入二进制 0b${val.toString(2).padStart(4, '0')}（十进制 ${val}）：${
+            blank ? '已开启 BCD 消隐，数值 >9 时阴极断电熄灭。' : `第 “${val.toString(16).toUpperCase()}” 号金属阴极丝包裹满暖橙色氖气辉光鞘层！`
+          }`;
+        },
+        camera: { position: [0.3, 2.35, 3.8], target: [0, 0.9, 0] },
+      },
+      {
+        id: 'step-2',
+        title: '内置译码驱动：无缝接入 4 位总线',
+        narration: '工作台里的辉光数码管内置高压阴极驱动矩阵，直接把计数器、编码器、寄存器或 RAM 的 Q3..Q0 接上来即可即时显像。',
+        camera: { position: [3.9, 2.6, 3.6], target: [0, 0.85, 0] },
+      },
+      {
+        id: 'step-3',
+        title: '与编码器、CPU 累加器的实战联调',
+        narration: '搭配两枚辉光管分别监视存储器指令内容 (NIX_MEM) 与累加器结果 (NIX_ACC)，就能亲手点亮一台硬核蒸汽朋克 4 位计算机！',
+        camera: { position: [-3.6, 2.5, 3.5], target: [0, 0.85, 0] },
+      },
+    ],
+  },
+
+  ENCODER_4_2: {
+    type: 'ENCODER_4_2',
+    title: '4线-2线优先编码器 (Priority Encoder)',
+    englishTitle: '4-to-2 Line Priority Binary Encoder',
+    badge: '组合压缩 · 仲裁优先级',
+    summary: '将 4 路互斥或同时到达的高电平请求 (I₃..I₀) 实时压缩为 2 位二进制索引 (Y₁Y₀)，当多路同时按下时仅响应优先级最高的有效位！',
+    formulas: [
+      { expr: 'Y₁ = I₃ + I₂ ， Y₀ = I₃ + I₂\'·I₁', note: '优先级顺序：I₃ > I₂ > I₁ > I₀（高位遮蔽低位）' },
+      { expr: 'GS = I₃ + I₂ + I₁ + I₀', note: '群选/有效信号：区分“真正按下了 I₀(00)”与“毫无按键(00)”' },
+    ],
+    keyTakeaways: [
+      '普通编码器在两个按键同时按下时会输出错误码字，而优先编码器通过门控“屏蔽链”保证高位必胜。',
+      'GS (Group Select) 标志位极其关键：GS=0 表示全部输入空闲，此时 Y₁Y₀=00 不可当成有效按键 0 号。',
+      '广泛用于键盘扫描编码、微处理器中断优先级仲裁 (IRQ0~IRQ3) 等场合。',
+    ],
+    controls: [
+      { key: 'i3', label: '最高优先 I₃ (11)', kind: 'toggle', defaultValue: 0 },
+      { key: 'i2', label: '次高优先 I₂ (10)', kind: 'toggle', defaultValue: 1 },
+      { key: 'i1', label: '第三优先 I₁ (01)', kind: 'toggle', defaultValue: 0 },
+      { key: 'i0', label: '最低优先 I₀ (00)', kind: 'toggle', defaultValue: 1 },
+    ],
+    callouts: [
+      { id: 'lanes', title: '4 路请求轨道 I₃..I₀', detail: '高位激活时会物理抬起优先级挡板阻断低位通道', worldPos: [-1.2, 0.65, 0], color: '#ec4899' },
+      { id: 'arbiter', title: '优先级仲裁栅栏', detail: '确保每次至多有一个最高优先级通道进入编码矩阵', worldPos: [0, 0.72, 0], color: '#fbbf24' },
+      { id: 'out', title: '2 位编码与 GS 有效灯', detail: '输出二进制 Y₁Y₀ 及 GS 有效状态', worldPos: [1.3, 0.72, 0], color: '#22c55e' },
+    ],
+    steps: [
+      {
+        id: 'step-1',
+        title: '从多选一请求到紧凑二进制编号',
+        narration: '4 根独立信号线只需要 2 根二进制地址线就能传完索引值，线缆数量直接减半，还送你 1 根 GS 有效确认灯。',
+        camera: { position: [4.0, 2.9, 4.0], target: [0, 0.65, 0] },
+      },
+      {
+        id: 'step-2',
+        title: '高位优先仲裁：当 I₂ 与 I₀ 同时为 1',
+        narration: '拨动控制面板上的多个输入拨杆：即便 I₀ 与 I₁ 同时打开，只要更高的 I₂ 或 I₃ 为 1，低位信号立刻被黄色仲裁闸门遮蔽！',
+        renderNarration: (p) => {
+          const i3 = (p.i3 ?? 0) >= 0.5 ? 1 : 0;
+          const i2 = (p.i2 ?? 0) >= 0.5 ? 1 : 0;
+          const i1 = (p.i1 ?? 0) >= 0.5 ? 1 : 0;
+          const i0 = (p.i0 ?? 0) >= 0.5 ? 1 : 0;
+          const gs = i3 || i2 || i1 || i0 ? 1 : 0;
+          const y1 = i3 || i2 ? 1 : 0;
+          const y0 = i3 || (!i2 && i1) ? 1 : 0;
+          const win = i3 ? 'I₃' : i2 ? 'I₂' : i1 ? 'I₁' : i0 ? 'I₀' : '无有效输入';
+          return `当前输入 I₃..I₀ = ${i3}${i2}${i1}${i0}：最高优先级命中 【${win}】，编码输出 Y₁Y₀ = ${y1}${y0}，有效指示 GS = ${gs}。`;
+        },
+        camera: { position: [0.2, 2.4, 4.3], target: [0, 0.65, 0] },
+      },
+      {
+        id: 'step-3',
+        title: '编码器 + 辉光管 / 译码器联动',
+        narration: '把编码器的 Y₁Y₀ 接到辉光管或 2-4 译码器，即可直观验证“输入仲裁 -> 压缩编码 -> 还原选通”完整信息流！',
+        camera: { position: [-3.5, 2.7, 3.8], target: [0, 0.65, 0] },
+      },
+    ],
+  },
+
+  DECODER_2_4: {
+    type: 'DECODER_2_4',
+    title: '2线-4线地址译码器 (2-to-4 Decoder)',
+    englishTitle: '2-to-4 One-Hot Address Decoder',
+    badge: '地址译码 · 独热选通',
+    summary: '编码器的逆过程：把 2 位二进制地址 A₁A₀ 精准翻译为 4 路互斥“独热码 (One-Hot)”通道中唯一亮起的芯片使能信号！',
+    formulas: [
+      { expr: 'Y_k = (INH == 0) · [A₁A₀ == k]  (k ∈ {0,1,2,3})', note: '同一时刻至多只有 1 路输出端拉高为 5V' },
+      { expr: 'INH = 1 ⇒ Y₃ = Y₂ = Y₁ = Y₀ = 0', note: '禁止端悬空默认读作 0（始终使能），拉高立即全关断' },
+    ],
+    keyTakeaways: [
+      '译码器是计算机访存与端口寻址的心脏——只要给定地址编码，就能唯一选中外设或内存体。',
+      '在本平台中特意设计为高电平禁止端 INH（悬空自动导通），新手只需接 A₁、A₀ 两根线就能点亮！',
+      '与 4 路信号灯搭配可以直观验证二进制数 00→Y0、01→Y1、10→Y2、11→Y3 的一一对应。',
+    ],
+    controls: [
+      { key: 'a1', label: '地址高位 A₁ (×2)', kind: 'toggle', defaultValue: 1 },
+      { key: 'a0', label: '地址低位 A₀ (×1)', kind: 'toggle', defaultValue: 0 },
+      { key: 'inh', label: '禁止门控 INH', kind: 'toggle', defaultValue: 0 },
+    ],
+    callouts: [
+      { id: 'addr', title: '2 位二进制地址总线', detail: 'A₁A₀ 组合形成 4 种离散地址状态', worldPos: [-1.15, 0.68, 0], color: '#14b8a6' },
+      { id: 'rotor', title: '机械类比选通转针', detail: '地址切换时转动拨针精准对准目标分支轨道', worldPos: [0, 0.72, 0], color: '#fbbf24' },
+      { id: 'outputs', title: 'Y₀..Y₃ 独热输出塔', detail: '被选中的唯一灯塔亮起 5V 高电平', worldPos: [1.35, 0.78, 0], color: '#22c55e' },
+    ],
+    steps: [
+      {
+        id: 'step-1',
+        title: '从紧凑编码“展开”到唯一控制线',
+        narration: '计算机只用 2 根地址线就能控制 4 台互不干扰的设备，译码器就像铁路道岔把单束指令精准导流到目标站台。',
+        renderNarration: (p) => {
+          const inh = (p.inh ?? 0) >= 0.5 ? 1 : 0;
+          const a1 = (p.a1 ?? 0) >= 0.5 ? 1 : 0;
+          const a0 = (p.a0 ?? 0) >= 0.5 ? 1 : 0;
+          const idx = (a1 << 1) | a0;
+          return inh
+            ? `禁止端 INH = 1（片选禁用）：无论地址 A₁A₀ = ${a1}${a0}（索引 ${idx}）为何值，4 路输出全部锁定为 0V！`
+            : `当前地址 A₁A₀ = ${a1}${a0}（十进制 ${idx}），INH = 0：唯一选通输出通道 Y${idx} = 1 (5V)，其余三路全为 0V！`;
+        },
+        camera: { position: [4.0, 2.9, 4.0], target: [0, 0.65, 0] },
+      },
+      {
+        id: 'step-2',
+        title: '用 INH 禁止端实现片选级联扩展',
+        narration: '把 INH 当作“总闸”：多片 2-4 译码器通过 INH 互联，就能拼成 3-8 译码器或控制大容量寄存器阵列！',
+        camera: { position: [0.2, 2.35, 4.3], target: [0, 0.65, 0] },
+      },
+      {
+        id: 'step-3',
+        title: '构建硬件指令译码器 (Instruction Decoder)',
+        narration: '在 CPU 中，将操作码送入译码器，其 Y0..Y3 输出即可直接充当 ALU 写入、寄存器锁存与跳转分支的控制线！',
+        camera: { position: [-3.4, 2.75, 3.8], target: [0, 0.65, 0] },
+      },
+    ],
+  },
+
+  MUX_4BIT: {
+    type: 'MUX_4BIT',
+    title: '4位二选一总线选择器 (4-Bit 2:1 Bus MUX)',
+    englishTitle: '4-Bit Dual-Bus Multiplexer',
+    badge: '数据通路切换 · 条件分支骨架',
+    summary: '用单根选择控制线 SEL 同步切换整组 4 位并行数据总线 (A[3:0] vs B[3:0])，让 CPU 能在“顺序写回”与“跳转地址/加载常数”之间瞬间改道！',
+    formulas: [
+      { expr: 'Y[3:0] = (SEL == 0) ? A[3:0] : B[3:0]', note: '4 路同步选通开关共享同一根 SEL 指令线' },
+      { expr: '可充当写回数据源切换或条件跳转目标选择器', note: 'ZERO 标志接入 SEL 即完成 JZ 条件分支！' },
+    ],
+    keyTakeaways: [
+      '搭建 4 位计算机时，用 4 颗单路 MUX_2_1 会拖出密密麻麻 16 根杂乱飞线；4 位总线选择器一芯片搞定整条半字节总线。',
+      '当 ALU 的 ZERO 标志接入 SEL，即可在“顺序下一条 (A)”与“分支目标 (B)”之间自动择路，这是实现图灵完备分支跳跃的钥匙！',
+    ],
+    controls: [
+      { key: 'valA', label: 'A 总线数值 A[3:0]', kind: 'slider', min: 0, max: 15, step: 1, unit: '', defaultValue: 5 },
+      { key: 'valB', label: 'B 总线数值 B[3:0]', kind: 'slider', min: 0, max: 15, step: 1, unit: '', defaultValue: 12 },
+      { key: 'sel', label: '通道选择 SEL (0=A / 1=B)', kind: 'toggle', defaultValue: 0 },
+    ],
+    callouts: [
+      { id: 'busA', title: 'A[3:0] 四线并行输入槽', detail: 'SEL=0 时全体直通输出端 Y[3:0]', worldPos: [-1.15, 0.8, -0.5], color: '#38bdf8' },
+      { id: 'busB', title: 'B[3:0] 备选输入总线', detail: 'SEL=1 时瞬间接管全部 4 条出线', worldPos: [-1.15, 0.55, 0.5], color: '#a855f7' },
+      { id: 'bar', title: '四极同步道岔联动杆', detail: '机械类比 SEL 如何同步推动四位高速电子开关', worldPos: [0, 0.85, 0], color: '#fbbf24' },
+    ],
+    steps: [
+      {
+        id: 'step-1',
+        title: '一条总线，四位并行同步切换',
+        narration: '观察紫色四极联动横杆如何在红色 A 总线与蓝色 B 总线之间整体滑移：四根信号线绝不会出现“某一位没跟上”的撕裂现象。',
+        renderNarration: (p) => {
+          const a = Math.round(p.valA ?? 5) & 15;
+          const b = Math.round(p.valB ?? 12) & 15;
+          const sel = (p.sel ?? 0) >= 0.5 ? 1 : 0;
+          const y = sel ? b : a;
+          return `当前 SEL = ${sel}：${sel ? 'B 总线获胜并切入通道' : 'A 总线获胜并切入通道'} — A=${a} (0x${a.toString(16).toUpperCase()}), B=${b} (0x${b.toString(16).toUpperCase()}) ⇒ 输出 Y[3:0] = ${y} (0b${y.toString(2).padStart(4, '0')})。`;
+        },
+        camera: { position: [4.1, 3.0, 4.1], target: [0, 0.65, 0] },
+      },
+      {
+        id: 'step-2',
+        title: 'CPU 中的写回源选择 (Write-Back MUX)',
+        narration: 'A 路接入 ALU 运算结果，B 路接入 RAM 刚读出的新数据；只需拨一下 SEL，寄存器就知道该存算术结果还是加载常数。',
+        camera: { position: [0.3, 2.3, 4.3], target: [0, 0.65, 0] },
+      },
+      {
+        id: 'step-3',
+        title: '配合状态标志实现图灵完备条件跳转',
+        narration: '将 ALU 的 ZERO 或 COUT 旗标直接连入 MUX_4BIT 的 SEL：零结果就跳转，非零继续执行——图灵机“条件分支”跃然桌上！',
+        camera: { position: [-3.5, 2.8, 3.8], target: [0, 0.65, 0] },
+      },
+    ],
+  },
+
+  REGISTER_4BIT: {
+    type: 'REGISTER_4BIT',
+    title: '4位并行数据寄存器 (4-Bit Parallel Register)',
+    englishTitle: '4-Bit Synchronous Register with WE & RST',
+    badge: '图灵核心 · 累加器 ACC / PC',
+    summary: '将 4 枚上升沿 D 触发器打包在同一组控制总线之下：当写使能 WE=1 且 CLK 上升沿到来时同步锁存 4 位新状态，构成计算机的累加器或通用寄存器！',
+    formulas: [
+      { expr: 'RST = 1 ⇒ Q[3:0] ← 0000（异步立即清零）', note: '最高优先复位指令，开机归零' },
+      { expr: 'CLK↑ 且 WE = 1 ⇒ Q[3:0] ← D[3:0] ； WE = 0 ⇒ 保持原值', note: '写使能防止无效时钟脉冲冲毁旧数据！' },
+    ],
+    keyTakeaways: [
+      '普通 D 触发器每个时钟都要被迫刷新一次，而真正可用的 CPU 寄存器必须具备 WE (Write Enable) 锁存门控才能长久保存中间计算结果。',
+      '将 ACC 寄存器输出接回 ALU 的 A 输入端，再用 ALU 结果接回 ACC 的 D 输入端，就构成了经典计算机的“读-改-写”累加闭环！',
+    ],
+    controls: [
+      { key: 'dVal', label: '待写入数据 D[3:0]', kind: 'slider', min: 0, max: 15, step: 1, unit: '', defaultValue: 9 },
+      { key: 'we', label: '写使能 WE (允许写入)', kind: 'toggle', defaultValue: 1 },
+      { key: 'rst', label: '异步复位 RST', kind: 'toggle', defaultValue: 0 },
+    ],
+    callouts: [
+      { id: 'bus', title: '4 位输入数据总线 D[3:0]', detail: '上升沿尚未到来前仅在门外候命', worldPos: [-1.15, 0.65, 0], color: '#38bdf8' },
+      { id: 'weGate', title: 'WE 写使能闸门 + CLK 撞锤', detail: '必须 WE=1 且 CLK 触发上升沿才会把 D 打入右侧储格', worldPos: [0, 0.9, 0.45], color: '#fbbf24' },
+      { id: 'cells', title: '4 枚同步记忆柱 Q₃..Q₀', detail: '稳稳保持当前二进制半字节状态直至下次授权写入', worldPos: [1.1, 0.82, 0], color: '#22c55e' },
+    ],
+    steps: [
+      {
+        id: 'step-1',
+        title: '为什么图灵机需要受控的状态记忆？',
+        narration: '图灵完备系统必须能在有限控制状态下稳妥保存、有条件地覆写当前数据状态。WE=0 时无论时钟怎样跳动，已存入的 4 个比特都纹丝不动！',
+        renderNarration: (p) => {
+          const d = Math.round(p.dVal ?? 9) & 15;
+          const we = (p.we ?? 1) >= 0.5;
+          const rst = (p.rst ?? 0) >= 0.5;
+          if (rst) return 'RST = 1：异步清零信号激活，4 枚记忆柱瞬间归 0000，无视时钟与 WE 状态！';
+          return `待写输入 D = ${d} (0b${d.toString(2).padStart(4, '0')})，写使能 WE = ${we ? '1 (闸门开启，每拍 CLK↑ 更新锁存)' : '0 (写保护锁死，记忆保持不变)'}。`;
+        },
+        camera: { position: [4.1, 3.0, 4.1], target: [0, 0.65, 0] },
+      },
+      {
+        id: 'step-2',
+        title: '同步采样与反馈防竞争',
+        narration: '因为四位同时在 CLK 边沿采样上一拍稳态输出，即便把 Q 直接经过 ALU 加法器折返连到 D 端，也不会在同一时钟拍内无限自激累加！',
+        camera: { position: [0.1, 2.35, 4.3], target: [0, 0.65, 0] },
+      },
+      {
+        id: 'step-3',
+        title: '工作台接线提示：记得使能 WE！',
+        narration: 'WE 引脚悬空默认读作 0（保护态）——在工作台让寄存器跟随节拍工作时，别忘了把 LOGIC_IN(1) 或译码器写入信号接到 WE！',
+        camera: { position: [-3.5, 2.8, 3.8], target: [0, 0.65, 0] },
+      },
+    ],
+  },
+
+  ALU_4BIT: {
+    type: 'ALU_4BIT',
+    title: '4位算术逻辑单元 (4-Bit ALU)',
+    englishTitle: '4-Bit Arithmetic & Logic Unit with Carry/Zero Flags',
+    badge: '图灵运算心脏 · 算逻+标志位',
+    summary: '现代 CPU 最核心的组合计算发动机！根据 2 位操作码 OP[1:0] 对两组 4 位操作数 A、B 执行加/减/与/异或运算，并输出进位 COUT 与条件判零标志 ZERO！',
+    formulas: [
+      { expr: '00: ADD (A+B)  |  01: SUB (A-B)  |  10: AND (A&B)  |  11: XOR (A^B)', note: '算术与布尔逻辑二合一（模 16 截断至 F[3:0]）' },
+      { expr: 'ZERO = (F[3:0] == 0000) ? 1 : 0', note: '零标志位正是构造“相等判断 (A==B)”与条件分支的灵魂！' },
+    ],
+    keyTakeaways: [
+      '只有组合计算还算不上“可编程图灵机”，ALU 输出 ZERO（在 SUB 模式下等效判别 A == B）才是让程序产生智能决策分支的基础。',
+      'ADD 模式下 COUT 表示无符号溢出进位；SUB 模式下 COUT=1 表示无借位（即 A ≥ B），用于大小比较 (< / ≥)。',
+    ],
+    controls: [
+      { key: 'valA', label: '操作数 A[3:0]', kind: 'slider', min: 0, max: 15, step: 1, unit: '', defaultValue: 6 },
+      { key: 'valB', label: '操作数 B[3:0]', kind: 'slider', min: 0, max: 15, step: 1, unit: '', defaultValue: 6 },
+      { key: 'op', label: '操作码 OP (0:ADD 1:SUB 2:AND 3:XOR)', kind: 'slider', min: 0, max: 3, step: 1, unit: '', defaultValue: 1 },
+    ],
+    callouts: [
+      { id: 'ops', title: '双 4 位数据输入栈 A / B', detail: 'A 接累加器，B 接内存数据或立即数', worldPos: [-1.25, 0.72, 0], color: '#38bdf8' },
+      { id: 'core', title: '可编程功能矩阵核 (OP1, OP0)', detail: '实时在行波进位加法、补码减法、按位逻辑门阵间切换', worldPos: [0, 0.85, 0], color: '#f59e0b' },
+      { id: 'flags', title: 'COUT 进位与 ZERO 判零信标', detail: '标志位送入控制器实现 JZ / JC 分支跳转', worldPos: [1.3, 0.95, 0.45], color: '#fbbf24' },
+    ],
+    steps: [
+      {
+        id: 'step-1',
+        title: '算术运算与布尔逻辑融合在同一矩阵',
+        narration: '观察左右操作数柱如何汇聚到黄金 ALU 核心并点亮右侧 4 位输出 F[3:0]；拖动 OP 滑块即可在 4 种指令间瞬时切换。',
+        renderNarration: (p) => {
+          const a = Math.round(p.valA ?? 6) & 15;
+          const b = Math.round(p.valB ?? 6) & 15;
+          const op = Math.round(p.op ?? 1) & 3;
+          const names = ['ADD (A+B)', 'SUB (A-B)', 'AND (A&B)', 'XOR (A^B)'];
+          const raw = op === 0 ? a + b : op === 1 ? a - b : op === 2 ? a & b : a ^ b;
+          const f = raw & 15;
+          const cout = op === 0 ? (raw > 15 ? 1 : 0) : op === 1 ? (a >= b ? 1 : 0) : 0;
+          const zero = f === 0 ? 1 : 0;
+          return `当前指令 OP=${op.toString(2).padStart(2, '0')} [${names[op]}]：A=${a} (0x${a.toString(16).toUpperCase()})、B=${b} (0x${b.toString(16).toUpperCase()}) ⇒ F = ${f} (0x${f.toString(16).toUpperCase()})，COUT = ${cout}，ZERO = ${zero}${zero ? '（零标志亮起！）' : ''}。`;
+        },
+        camera: { position: [4.2, 3.0, 4.1], target: [0, 0.68, 0] },
+      },
+      {
+        id: 'step-2',
+        title: 'SUB 减法如何变成条件判等与比较器？',
+        narration: '试试把 A 和 B 都设成相同值并切到 OP=1 (SUB)：A - B = 0，ZERO 金灯立刻亮起！这正是所有 CPU BEQ / JZ 比较指令的物理真相。',
+        camera: { position: [0.3, 2.35, 4.4], target: [0, 0.68, 0] },
+      },
+      {
+        id: 'step-3',
+        title: '打造图灵完备“计算-分支”闭环',
+        narration: '将 ALU + 4位寄存器 + 16×4 RAM + MUX_4BIT + 计数器连接成数据通路，再把 F 接到辉光管，即可亲眼见证每拍指令运算成果！',
+        camera: { position: [-3.5, 2.8, 3.9], target: [0, 0.68, 0] },
+      },
+    ],
+  },
+
+  RAM_16X4: {
+    type: 'RAM_16X4',
+    title: '16×4位静态随机存储器 (16×4 SRAM)',
+    englishTitle: '16×4-Bit Static Random Access Memory',
+    badge: '可读可写内存 · 存储程序基石',
+    summary: '具备 16 个可独立寻址的 4 位存储格 (0x0 ~ 0xF)：既可预先在属性栏写入机器码表当成程序 ROM，也能在运行期间把运算成果写回任意内存单元 (WE=1)！',
+    formulas: [
+      { expr: '读操作 (异步): Q[3:0] = MEM[ A[3:0] ]', note: '改变地址 A₀..A₃ 后立刻无延迟读出对应存储格内容' },
+      { expr: '写操作 (同步): 若 WE = 1 且 CLK↑ ⇒ MEM[ A ] ← D[3:0]', note: '存储状态与计算状态统一，正式跨入冯·诺依曼图灵完备架构！' },
+    ],
+    keyTakeaways: [
+      '只有可读可写的随机存储器 (RAM)，计算系统才能做到在有限状态之外按任意变量地址存取中间数组或修改程序。',
+      '结合 4 位计数器作为程序计数器 (PC) 驱动 A[3:0]，即可每拍依次从 0x0 到 0xF 取指执行预设十六进制程序！',
+    ],
+    controls: [
+      { key: 'addr', label: '寻址地址 A[3:0]', kind: 'slider', min: 0, max: 15, step: 1, unit: '', defaultValue: 5 },
+      { key: 'dataIn', label: '待写入数据 D[3:0]', kind: 'slider', min: 0, max: 15, step: 1, unit: '', defaultValue: 11 },
+      { key: 'we', label: '写使能 WE (0=读 / 1=写入)', kind: 'toggle', defaultValue: 0 },
+    ],
+    callouts: [
+      { id: 'grid', title: '4×4 共 16 单元存储矩阵', detail: '16 根发光高度柱各自保存 0~15 的 4 比特十六进制半字节', worldPos: [0, 0.72, 0], color: '#10b981' },
+      { id: 'cursor', title: 'X-Y 地址交叉选通光环', detail: '根据 A[3:0] 在千万单元中毫秒级唯一锁定目标格子', worldPos: [-0.35, 0.9, 0.35], color: '#fbbf24' },
+      { id: 'io', title: 'WE 读写方向切换门', detail: 'WE=0 读出至 Q[3:0]；WE=1 伴随 CLK↑ 覆写进目标格', worldPos: [1.3, 0.78, 0], color: '#38bdf8' },
+    ],
+    steps: [
+      {
+        id: 'step-1',
+        title: '二维交叉阵列与随机地址寻址',
+        narration: '4 条地址线经过行/列两级译码在 4×4 矩阵中精确定位唯一亮起的金色选通单元；无论跳到 0 号还是 15 号格，读取耗时完全一样。',
+        renderNarration: (p) => {
+          const addr = Math.round(p.addr ?? 5) & 15;
+          const din = Math.round(p.dataIn ?? 11) & 15;
+          const we = (p.we ?? 0) >= 0.5;
+          const presetWord = (addr * 3 + 1) & 15;
+          const shown = we ? din : presetWord;
+          return `当前地址 A = 0x${addr.toString(16).toUpperCase()} (${addr})，${
+            we
+              ? `WE = 1（写入允许）：CLK 上升沿已将 D = 0x${din.toString(16).toUpperCase()} 写入格子 #${addr} 并回显于 Q！`
+              : `WE = 0（只读模式）：直接从格子 #${addr} 异步读出存储内容 Q = 0x${shown.toString(16).toUpperCase()} (${shown})。`
+          }`;
+        },
+        camera: { position: [4.2, 3.2, 4.1], target: [0, 0.65, 0] },
+      },
+      {
+        id: 'step-2',
+        title: '为什么具备 RAM 才是真正的图灵完备？',
+        narration: '如果只有固定几个寄存器，问题规模一超过寄存器个数就束手无策；有了可动态寻址读写的 RAM，就能存队列、算数列、自修改状态！',
+        camera: { position: [0.2, 2.7, 4.3], target: [0, 0.65, 0] },
+      },
+      {
+        id: 'step-3',
+        title: '在工作台属性栏直接编辑 16 单元十六进制程序表',
+        narration: '选中工作台里的 RAM_16X4，右下角属性栏会展开 16 格可点击编辑的十六进制内存表，运行时更能实时看到写回后格子的动态跳变！',
+        camera: { position: [-3.5, 2.9, 3.9], target: [0, 0.65, 0] },
       },
     ],
   },

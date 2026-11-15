@@ -17,6 +17,81 @@ export interface AcHistorySlice {
   dt: number;
   v: Record<string, number>;
   i: Record<string, number>;
+  w: Record<string, number>;
+}
+
+export interface WaveformEdgeStats {
+  initialized: boolean;
+  prevVal: number;
+  isHigh: boolean;
+  lastRisingTime: number | null;
+  lastFallingTime: number | null;
+  periodSec: number | null;
+  frequencyHz: number | null;
+  dutyCycle: number | null;
+  cycleCount: number;
+}
+
+export function parseRamInitHex(raw: unknown): number[] {
+  const cleaned = String(raw ?? '')
+    .toUpperCase()
+    .replace(/[^0-9A-F]/g, '')
+    .slice(0, 16)
+    .padEnd(16, '0');
+  const mem: number[] = [];
+  for (let idx = 0; idx < 16; idx++) {
+    mem.push(parseInt(cleaned[idx], 16) & 0x0f);
+  }
+  return mem;
+}
+
+export function encodeRamHex(mem: number[]): string {
+  const out: string[] = [];
+  for (let idx = 0; idx < 16; idx++) {
+    out.push(((mem[idx] ?? 0) & 0x0f).toString(16).toUpperCase());
+  }
+  return out.join('');
+}
+
+export function evaluateAlu4Bit(
+  a: number,
+  b: number,
+  op: number
+): { result: number; cout: 0 | 1; zero: 0 | 1; opName: string } {
+  const va = a & 0x0f;
+  const vb = b & 0x0f;
+  let result = 0;
+  let cout: 0 | 1 = 0;
+  let opName = 'ADD';
+  switch (op & 0x03) {
+    case 0: {
+      const raw = va + vb;
+      result = raw & 0x0f;
+      cout = raw > 15 ? 1 : 0;
+      opName = 'ADD';
+      break;
+    }
+    case 1: {
+      const raw = va - vb;
+      result = raw & 0x0f;
+      cout = va >= vb ? 1 : 0;
+      opName = 'SUB';
+      break;
+    }
+    case 2:
+      result = (va & vb) & 0x0f;
+      cout = 0;
+      opName = 'AND';
+      break;
+    case 3:
+    default:
+      result = (va ^ vb) & 0x0f;
+      cout = 0;
+      opName = 'XOR';
+      break;
+  }
+  const zero: 0 | 1 = result === 0 ? 1 : 0;
+  return { result, cout, zero, opName };
 }
 
 export type ZeroDtSolveMode = 'dcOperatingPoint' | 'holdState';
@@ -158,10 +233,13 @@ export interface SimulationRuntimeState {
   flipFlopStates: Record<string, number>; // 0 | 1
   timer555States: Record<string, number>; // 0 | 1 (NE555 RS latch Q output)
   counterValues: Record<string, number>; // 0..15 for COUNTER_4BIT
+  registerValues: Record<string, number>; // 0..15 for REGISTER_4BIT
+  ramMemory: Record<string, number[]>; // 16 nibbles (0..15) per RAM_16X4
   blownFuses: Record<string, boolean>;
   prevClockHigh: Record<string, boolean>;
   lastNodeVoltages: Record<string, number>;
   acHistory: AcHistorySlice[];
+  waveformStats: Record<string, WaveformEdgeStats>;
 }
 
 export function createInitialRuntimeState(): SimulationRuntimeState {
@@ -172,10 +250,13 @@ export function createInitialRuntimeState(): SimulationRuntimeState {
     flipFlopStates: {},
     timer555States: {},
     counterValues: {},
+    registerValues: {},
+    ramMemory: {},
     blownFuses: {},
     prevClockHigh: {},
     lastNodeVoltages: {},
     acHistory: [],
+    waveformStats: {},
   };
 }
 
@@ -235,6 +316,7 @@ const DIGITAL_TYPES = new Set([
   'CLOCK',
   'LOGIC_OUT',
   'HEX_DISPLAY',
+  'NIXIE_TUBE',
   'AND',
   'OR',
   'NOT',
@@ -248,6 +330,12 @@ const DIGITAL_TYPES = new Set([
   'D_FF',
   'JK_FF',
   'COUNTER_4BIT',
+  'ENCODER_4_2',
+  'DECODER_2_4',
+  'MUX_4BIT',
+  'REGISTER_4BIT',
+  'ALU_4BIT',
+  'RAM_16X4',
   'CUSTOM_TRUTH_8',
   'CUSTOM_TRUTH_16',
   'IC_PORT_IN',
@@ -716,6 +804,76 @@ export function solveCircuitStep(
           updateOutputPin(c.id, 'q2', (val >> 2) & 1 ? 1 : 0);
           updateOutputPin(c.id, 'q1', (val >> 1) & 1 ? 1 : 0);
           updateOutputPin(c.id, 'q0', val & 1 ? 1 : 0);
+        } else if (c.type === 'ENCODER_4_2') {
+          const i3 = readLogicPin(c.id, 'i3');
+          const i2 = readLogicPin(c.id, 'i2');
+          const i1 = readLogicPin(c.id, 'i1');
+          const i0 = readLogicPin(c.id, 'i0');
+          const gs: 0 | 1 = i3 || i2 || i1 || i0 ? 1 : 0;
+          const y1: 0 | 1 = i3 || i2 ? 1 : 0;
+          const y0: 0 | 1 = i3 || (!i2 && i1) ? 1 : 0;
+          updateOutputPin(c.id, 'y1', y1);
+          updateOutputPin(c.id, 'y0', y0);
+          updateOutputPin(c.id, 'gs', gs);
+        } else if (c.type === 'DECODER_2_4') {
+          const inh = readLogicPin(c.id, 'inh');
+          const addr = (readLogicPin(c.id, 'a1') << 1) | readLogicPin(c.id, 'a0');
+          updateOutputPin(c.id, 'y3', !inh && addr === 3 ? 1 : 0);
+          updateOutputPin(c.id, 'y2', !inh && addr === 2 ? 1 : 0);
+          updateOutputPin(c.id, 'y1', !inh && addr === 1 ? 1 : 0);
+          updateOutputPin(c.id, 'y0', !inh && addr === 0 ? 1 : 0);
+        } else if (c.type === 'MUX_4BIT') {
+          const sel = readLogicPin(c.id, 'sel');
+          for (const bit of ['3', '2', '1', '0']) {
+            updateOutputPin(
+              c.id,
+              `y${bit}`,
+              sel ? readLogicPin(c.id, `b${bit}`) : readLogicPin(c.id, `a${bit}`)
+            );
+          }
+        } else if (c.type === 'REGISTER_4BIT') {
+          const rst = readLogicPin(c.id, 'rst');
+          if (rst && (simState.registerValues[c.id] ?? 0) !== 0) {
+            simState.registerValues[c.id] = 0;
+          }
+          const val = rst ? 0 : (simState.registerValues[c.id] ?? 0) & 0x0f;
+          updateOutputPin(c.id, 'q3', (val >> 3) & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'q2', (val >> 2) & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'q1', (val >> 1) & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'q0', val & 1 ? 1 : 0);
+        } else if (c.type === 'ALU_4BIT') {
+          const a =
+            (readLogicPin(c.id, 'a3') << 3) |
+            (readLogicPin(c.id, 'a2') << 2) |
+            (readLogicPin(c.id, 'a1') << 1) |
+            readLogicPin(c.id, 'a0');
+          const b =
+            (readLogicPin(c.id, 'b3') << 3) |
+            (readLogicPin(c.id, 'b2') << 2) |
+            (readLogicPin(c.id, 'b1') << 1) |
+            readLogicPin(c.id, 'b0');
+          const op = (readLogicPin(c.id, 'op1') << 1) | readLogicPin(c.id, 'op0');
+          const { result, cout, zero } = evaluateAlu4Bit(a, b, op);
+          updateOutputPin(c.id, 'f3', (result >> 3) & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'f2', (result >> 2) & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'f1', (result >> 1) & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'f0', result & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'cout', cout);
+          updateOutputPin(c.id, 'zero', zero);
+        } else if (c.type === 'RAM_16X4') {
+          if (!simState.ramMemory[c.id]) {
+            simState.ramMemory[c.id] = parseRamInitHex(c.props.initHex);
+          }
+          const addr =
+            (readLogicPin(c.id, 'a3') << 3) |
+            (readLogicPin(c.id, 'a2') << 2) |
+            (readLogicPin(c.id, 'a1') << 1) |
+            readLogicPin(c.id, 'a0');
+          const val = (simState.ramMemory[c.id][addr] ?? 0) & 0x0f;
+          updateOutputPin(c.id, 'q3', (val >> 3) & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'q2', (val >> 2) & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'q1', (val >> 1) & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'q0', val & 1 ? 1 : 0);
         } else if (c.type === 'CUSTOM_TRUTH_8' || c.type === 'CUSTOM_TRUTH_16') {
           const outputs = evaluateTruthChipOutputs(c, (pid) => readLogicPin(c.id, pid));
           for (const [outPinId, bit] of Object.entries(outputs)) {
@@ -775,6 +933,58 @@ export function solveCircuitStep(
         }
         if (val !== prevVal) seqChanged = true;
         simState.counterValues[c.id] = val;
+        simState.prevClockHigh[c.id] = clkHigh;
+        logicDriveOut.set(pinKey(c.id, 'q3'), (val >> 3) & 1 ? 5 : 0);
+        logicDriveOut.set(pinKey(c.id, 'q2'), (val >> 2) & 1 ? 5 : 0);
+        logicDriveOut.set(pinKey(c.id, 'q1'), (val >> 1) & 1 ? 5 : 0);
+        logicDriveOut.set(pinKey(c.id, 'q0'), val & 1 ? 5 : 0);
+      } else if (c.type === 'REGISTER_4BIT') {
+        const rst = readLogicPin(c.id, 'rst') === 1;
+        const we = readLogicPin(c.id, 'we') === 1;
+        const clkHigh = readLogicPin(c.id, 'clk') === 1;
+        const wasHigh = Boolean(simState.prevClockHigh[c.id]);
+        const prevVal = (simState.registerValues[c.id] ?? 0) & 0x0f;
+        let val = prevVal;
+        if (rst) {
+          val = 0;
+        } else if (!wasHigh && clkHigh && we) {
+          val =
+            (readLogicPin(c.id, 'd3') << 3) |
+            (readLogicPin(c.id, 'd2') << 2) |
+            (readLogicPin(c.id, 'd1') << 1) |
+            readLogicPin(c.id, 'd0');
+        }
+        if (val !== prevVal) seqChanged = true;
+        simState.registerValues[c.id] = val;
+        simState.prevClockHigh[c.id] = clkHigh;
+        logicDriveOut.set(pinKey(c.id, 'q3'), (val >> 3) & 1 ? 5 : 0);
+        logicDriveOut.set(pinKey(c.id, 'q2'), (val >> 2) & 1 ? 5 : 0);
+        logicDriveOut.set(pinKey(c.id, 'q1'), (val >> 1) & 1 ? 5 : 0);
+        logicDriveOut.set(pinKey(c.id, 'q0'), val & 1 ? 5 : 0);
+      } else if (c.type === 'RAM_16X4') {
+        if (!simState.ramMemory[c.id]) {
+          simState.ramMemory[c.id] = parseRamInitHex(c.props.initHex);
+        }
+        const mem = simState.ramMemory[c.id];
+        const addr =
+          (readLogicPin(c.id, 'a3') << 3) |
+          (readLogicPin(c.id, 'a2') << 2) |
+          (readLogicPin(c.id, 'a1') << 1) |
+          readLogicPin(c.id, 'a0');
+        const we = readLogicPin(c.id, 'we') === 1;
+        const clkHigh = readLogicPin(c.id, 'clk') === 1;
+        const wasHigh = Boolean(simState.prevClockHigh[c.id]);
+        const prevVal = (mem[addr] ?? 0) & 0x0f;
+        let val = prevVal;
+        if (!wasHigh && clkHigh && we) {
+          val =
+            (readLogicPin(c.id, 'd3') << 3) |
+            (readLogicPin(c.id, 'd2') << 2) |
+            (readLogicPin(c.id, 'd1') << 1) |
+            readLogicPin(c.id, 'd0');
+          mem[addr] = val;
+          if (val !== prevVal) seqChanged = true;
+        }
         simState.prevClockHigh[c.id] = clkHigh;
         logicDriveOut.set(pinKey(c.id, 'q3'), (val >> 3) & 1 ? 5 : 0);
         logicDriveOut.set(pinKey(c.id, 'q2'), (val >> 2) & 1 ? 5 : 0);
@@ -1302,7 +1512,8 @@ export function solveCircuitStep(
           stampG(getNode(c.id, 'in'), 0, 1e-6); // 1 MOhm probe impedance
           break;
         }
-        case 'HEX_DISPLAY': {
+        case 'HEX_DISPLAY':
+        case 'NIXIE_TUBE': {
           for (const pid of ['d3', 'd2', 'd1', 'd0']) {
             stampG(getNode(c.id, pid), 0, 1e-5);
           }
@@ -1390,6 +1601,12 @@ export function solveCircuitStep(
           }
           break;
         }
+        case 'ENCODER_4_2':
+        case 'DECODER_2_4':
+        case 'MUX_4BIT':
+        case 'REGISTER_4BIT':
+        case 'ALU_4BIT':
+        case 'RAM_16X4':
         case 'CUSTOM_TRUTH_8':
         case 'CUSTOM_TRUTH_16': {
           const pins = getComponentPins(c);
@@ -2051,17 +2268,28 @@ export function solveCircuitStep(
         extraInfo = `IC输出端口 (${logicState ? '高 1' : '低 0'})`;
         break;
       }
-      case 'HEX_DISPLAY': {
+      case 'HEX_DISPLAY':
+      case 'NIXIE_TUBE': {
         const b3 = pinVoltages.d3 >= 2.5 ? 8 : 0;
         const b2 = pinVoltages.d2 >= 2.5 ? 4 : 0;
         const b1 = pinVoltages.d1 >= 2.5 ? 2 : 0;
         const b0 = pinVoltages.d0 >= 2.5 ? 1 : 0;
         const hexVal = b3 + b2 + b1 + b0;
+        for (const pid of ['d3', 'd2', 'd1', 'd0']) {
+          addPinCurrent(c.id, pid, (pinVoltages[pid] ?? 0) * 1e-5);
+        }
         logicState = hexVal;
         voltageDrop = pinVoltages.d0;
         current = 0;
-        power = 0.05;
-        extraInfo = `HEX: ${hexVal.toString(16).toUpperCase()} (${hexVal})`;
+        if (c.type === 'NIXIE_TUBE') {
+          const bcdBlank = Boolean(c.props.bcdBlank) && hexVal > 9;
+          const char = bcdBlank ? '熄灭 (>9)' : hexVal.toString(16).toUpperCase();
+          power = bcdBlank ? 0.02 : 0.18;
+          extraInfo = `辉光显示: ${char} (0b${hexVal.toString(2).padStart(4, '0')})`;
+        } else {
+          power = 0.05;
+          extraInfo = `HEX: ${hexVal.toString(16).toUpperCase()} (${hexVal})`;
+        }
         break;
       }
       case 'TIMER_555': {
@@ -2128,6 +2356,60 @@ export function solveCircuitStep(
           const cnt = (simState.counterValues[c.id] ?? 0) & 0x0f;
           logicState = cnt;
           extraInfo = `计数值 ${cnt} (0b${cnt.toString(2).padStart(4, '0')})`;
+        } else if (c.type === 'ENCODER_4_2') {
+          const y1 = (pinVoltages.y1 ?? 0) >= 2.5 ? 1 : 0;
+          const y0 = (pinVoltages.y0 ?? 0) >= 2.5 ? 1 : 0;
+          const gs = (pinVoltages.gs ?? 0) >= 2.5 ? 1 : 0;
+          logicState = (gs << 2) | (y1 << 1) | y0;
+          extraInfo = gs ? `有效编码 Y=${y1}${y0} (GS=1)` : '无输入激活 (GS=0)';
+        } else if (c.type === 'DECODER_2_4') {
+          const inh = (pinVoltages.inh ?? 0) >= 2.5 ? 1 : 0;
+          const y3 = (pinVoltages.y3 ?? 0) >= 2.5 ? 1 : 0;
+          const y2 = (pinVoltages.y2 ?? 0) >= 2.5 ? 1 : 0;
+          const y1 = (pinVoltages.y1 ?? 0) >= 2.5 ? 1 : 0;
+          const y0 = (pinVoltages.y0 ?? 0) >= 2.5 ? 1 : 0;
+          const bits = (y3 << 3) | (y2 << 2) | (y1 << 1) | y0;
+          const activeIdx = y3 ? 3 : y2 ? 2 : y1 ? 1 : 0;
+          logicState = bits;
+          extraInfo = inh ? '输出禁止 (INH=1)' : `选通输出 Y${activeIdx}=1`;
+        } else if (c.type === 'MUX_4BIT') {
+          const sel = (pinVoltages.sel ?? 0) >= 2.5 ? 1 : 0;
+          const yVal =
+            (((pinVoltages.y3 ?? 0) >= 2.5 ? 1 : 0) << 3) |
+            (((pinVoltages.y2 ?? 0) >= 2.5 ? 1 : 0) << 2) |
+            (((pinVoltages.y1 ?? 0) >= 2.5 ? 1 : 0) << 1) |
+            ((pinVoltages.y0 ?? 0) >= 2.5 ? 1 : 0);
+          logicState = yVal;
+          extraInfo = `选通 ${sel ? 'B' : 'A'}[3:0] → 0x${yVal.toString(16).toUpperCase()} (${yVal})`;
+        } else if (c.type === 'REGISTER_4BIT') {
+          const regVal = (simState.registerValues[c.id] ?? 0) & 0x0f;
+          logicState = regVal;
+          extraInfo = `锁存值 0x${regVal.toString(16).toUpperCase()} (0b${regVal.toString(2).padStart(4, '0')})`;
+        } else if (c.type === 'ALU_4BIT') {
+          const op =
+            (((pinVoltages.op1 ?? 0) >= 2.5 ? 1 : 0) << 1) |
+            ((pinVoltages.op0 ?? 0) >= 2.5 ? 1 : 0);
+          const fVal =
+            (((pinVoltages.f3 ?? 0) >= 2.5 ? 1 : 0) << 3) |
+            (((pinVoltages.f2 ?? 0) >= 2.5 ? 1 : 0) << 2) |
+            (((pinVoltages.f1 ?? 0) >= 2.5 ? 1 : 0) << 1) |
+            ((pinVoltages.f0 ?? 0) >= 2.5 ? 1 : 0);
+          const cout = (pinVoltages.cout ?? 0) >= 2.5 ? 1 : 0;
+          const zero = (pinVoltages.zero ?? 0) >= 2.5 ? 1 : 0;
+          const opNames = ['ADD', 'SUB', 'AND', 'XOR'];
+          logicState = fVal;
+          extraInfo = `${opNames[op]}: F=0x${fVal.toString(16).toUpperCase()} · C=${cout} Z=${zero}`;
+        } else if (c.type === 'RAM_16X4') {
+          const addr =
+            (((pinVoltages.a3 ?? 0) >= 2.5 ? 1 : 0) << 3) |
+            (((pinVoltages.a2 ?? 0) >= 2.5 ? 1 : 0) << 2) |
+            (((pinVoltages.a1 ?? 0) >= 2.5 ? 1 : 0) << 1) |
+            ((pinVoltages.a0 ?? 0) >= 2.5 ? 1 : 0);
+          const mem = simState.ramMemory[c.id] ?? parseRamInitHex(c.props.initHex);
+          const qVal = (mem[addr] ?? 0) & 0x0f;
+          const we = (pinVoltages.we ?? 0) >= 2.5 ? 1 : 0;
+          logicState = qVal;
+          extraInfo = `MEM[0x${addr.toString(16).toUpperCase()}]=0x${qVal.toString(16).toUpperCase()} · ${we ? 'WE=1写允许' : '只读'}`;
         } else if (c.type === 'CUSTOM_TRUTH_8' || c.type === 'CUSTOM_TRUTH_16') {
           const cfg = parseTruthChipConfig(c);
           const outBits = compPins
@@ -2333,6 +2615,83 @@ export function solveCircuitStep(
   };
 }
 
+function updateWaveformEdgeStats(
+  simState: SimulationRuntimeState,
+  components: CircuitComponent[],
+  res: SimulationStepResult,
+  stepDt: number
+): void {
+  if (!simState.waveformStats) {
+    simState.waveformStats = {};
+  }
+  const LOW_TH = 2.0;
+  const HIGH_TH = 3.0;
+  const MID_TH = 2.5;
+  const prevStepTime = res.time - stepDt;
+
+  for (const comp of components) {
+    const currVal = res.telemetryById[comp.id]?.voltageDrop ?? 0;
+    const prev = simState.waveformStats[comp.id];
+    if (!prev || !prev.initialized) {
+      simState.waveformStats[comp.id] = {
+        initialized: true,
+        prevVal: currVal,
+        isHigh: currVal >= MID_TH,
+        lastRisingTime: null,
+        lastFallingTime: null,
+        periodSec: null,
+        frequencyHz: null,
+        dutyCycle: null,
+        cycleCount: 0,
+      };
+      continue;
+    }
+
+    const st: WaveformEdgeStats = { ...prev };
+    const dv = currVal - st.prevVal;
+    const frac =
+      Math.abs(dv) > 1e-9 ? Math.min(1, Math.max(0, (MID_TH - st.prevVal) / dv)) : 1;
+    const crossTime = prevStepTime + frac * stepDt;
+
+    if (!st.isHigh && currVal >= HIGH_TH) {
+      st.isHigh = true;
+      if (st.lastRisingTime !== null) {
+        const period = crossTime - st.lastRisingTime;
+        if (period > 1e-5) {
+          st.periodSec = period;
+          st.frequencyHz = 1 / period;
+          st.cycleCount += 1;
+          if (st.lastFallingTime !== null && st.lastFallingTime > st.lastRisingTime) {
+            const highDur = st.lastFallingTime - st.lastRisingTime;
+            st.dutyCycle = Math.min(1, Math.max(0, highDur / period));
+          }
+        }
+      }
+      st.lastRisingTime = crossTime;
+    } else if (st.isHigh && currVal <= LOW_TH) {
+      st.isHigh = false;
+      st.lastFallingTime = crossTime;
+    }
+
+    // Clear stale period measurement if oscillation stops for longer than 3.5 periods (min 2.5s)
+    if (
+      st.periodSec !== null &&
+      st.lastRisingTime !== null &&
+      res.time - st.lastRisingTime > Math.max(2.5, st.periodSec * 3.5)
+    ) {
+      st.periodSec = null;
+      st.frequencyHz = null;
+      st.dutyCycle = null;
+      st.cycleCount = 0;
+      st.lastRisingTime = null;
+      st.lastFallingTime = null;
+    }
+
+    st.prevVal = currVal;
+    simState.waveformStats[comp.id] = st;
+  }
+}
+
 /**
  * Adaptive sub-stepped simulation driver with exact full-cycle RMS / power-factor integration.
  * Eliminates aliasing & ripple at 50Hz AC while remaining 100% compatible with DC/transient/digital steps.
@@ -2345,6 +2704,9 @@ export function advanceCircuitSimulation(
 ): SimulationStepResult {
   if (!simState.acHistory) {
     simState.acHistory = [];
+  }
+  if (!simState.waveformStats) {
+    simState.waveformStats = {};
   }
 
   let maxFreq = 0;
@@ -2376,6 +2738,7 @@ export function advanceCircuitSimulation(
     const pushSlice = (res: SimulationStepResult) => {
       const v: Record<string, number> = {};
       const i: Record<string, number> = {};
+      const wMap: Record<string, number> = {};
       for (const comp of circuit.components) {
         const tel = res.telemetryById[comp.id];
         if (tel) {
@@ -2383,7 +2746,11 @@ export function advanceCircuitSimulation(
           i[comp.id] = tel.current;
         }
       }
-      simState.acHistory.push({ dt: h, v, i });
+      for (const [wid, wt] of Object.entries(res.wireTelemetryById)) {
+        wMap[wid] = wt.current;
+      }
+      simState.acHistory.push({ dt: h, v, i, w: wMap });
+      updateWaveformEdgeStats(simState, circuit.components, res, h);
     };
     pushSlice(result);
 
@@ -2398,6 +2765,10 @@ export function advanceCircuitSimulation(
   const sumV2: Record<string, number> = {};
   const sumI2: Record<string, number> = {};
   const sumVI: Record<string, number> = {};
+  const sumW: Record<string, number> = {};
+  const sumW2: Record<string, number> = {};
+  const maxW: Record<string, number> = {};
+  const minW: Record<string, number> = {};
   let accDt = 0;
   let trimBefore = 0;
 
@@ -2417,6 +2788,15 @@ export function advanceCircuitSimulation(
       sumI2[cid] = (sumI2[cid] ?? 0) + ii * ii * w;
       sumVI[cid] = (sumVI[cid] ?? 0) + vv * ii * w;
     }
+    if (slice.w) {
+      for (const wid of Object.keys(slice.w)) {
+        const iw = slice.w[wid] ?? 0;
+        sumW[wid] = (sumW[wid] ?? 0) + iw * w;
+        sumW2[wid] = (sumW2[wid] ?? 0) + iw * iw * w;
+        maxW[wid] = maxW[wid] === undefined ? iw : Math.max(maxW[wid], iw);
+        minW[wid] = minW[wid] === undefined ? iw : Math.min(minW[wid], iw);
+      }
+    }
     if (slice.dt >= remaining - 1e-12) {
       trimBefore = idx;
       break;
@@ -2428,6 +2808,7 @@ export function advanceCircuitSimulation(
   }
 
   const hasFullAcCycle = acFreq > 0 && accDt >= 0.9 * (1 / acFreq);
+  const hasAcWireWindow = acFreq > 0 && accDt >= 0.8 * (1 / acFreq);
   const compMap = new Map(circuit.components.map((c) => [c.id, c]));
   const acWarnings: string[] = [];
 
@@ -2477,6 +2858,26 @@ export function advanceCircuitSimulation(
       tel.avgPower = tel.power;
       tel.apparentPower = Math.abs(tel.voltageDrop * tel.current);
       tel.powerFactor = comp?.type === 'CAPACITOR' ? 0 : 1;
+    }
+  }
+
+  for (const [wid, wt] of Object.entries(result.wireTelemetryById)) {
+    if (accDt > 1e-9 && sumW2[wid] !== undefined) {
+      const iRms = Math.sqrt(Math.max(0, sumW2[wid] / accDt));
+      const dcMean = (sumW[wid] ?? 0) / accDt;
+      const hi = maxW[wid] ?? 0;
+      const lo = minW[wid] ?? 0;
+      const peakMax = Math.max(hi, -lo);
+      const reversesSign = hi > 1e-4 && lo < -1e-4 && Math.min(hi, -lo) >= 0.15 * peakMax;
+      wt.iRms = iRms;
+      wt.dcMean = dcMean;
+      wt.acFrequency = acFreq > 0 ? acFreq : undefined;
+      wt.isAc = hasAcWireWindow && iRms > 1e-4 && reversesSign && Math.abs(dcMean) < 0.65 * iRms;
+    } else {
+      wt.iRms = Math.abs(wt.current);
+      wt.dcMean = wt.current;
+      wt.acFrequency = acFreq > 0 ? acFreq : undefined;
+      wt.isAc = false;
     }
   }
 

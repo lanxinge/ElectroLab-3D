@@ -29,7 +29,7 @@ export const ForumView: React.FC<{
   refreshTrigger: number;
   onForkToSimulator: () => void;
   onOpenPublish: () => void;
-  onOpenAuth: () => void;
+  onOpenAuth: (tab?: 'login' | 'register') => void;
 }> = ({ refreshTrigger, onForkToSimulator, onOpenPublish, onOpenAuth }) => {
   const user = useAuthStore((s) => s.user);
   const apiFetch = useAuthStore((s) => s.apiFetch);
@@ -176,13 +176,31 @@ export const ForumView: React.FC<{
               分享模电、数电、卡诺图与运放实验电路，支持一键 Fork 到 3D+2D 仿真工作台直接调试与测量！
             </p>
           </div>
-          <button
-            onClick={() => (user ? onOpenPublish() : onOpenAuth())}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs shrink-0 transition"
-          >
-            <Plus className="w-4 h-4" />
-            发布我的工作台电路
-          </button>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              data-testid="forum-workbench-btn"
+              onClick={onForkToSimulator}
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-medium text-xs shrink-0 transition"
+            >
+              前往 3D/2D 工作场
+            </button>
+            {!user && (
+              <button
+                data-testid="forum-register-btn"
+                onClick={() => onOpenAuth('register')}
+                className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shrink-0 transition"
+              >
+                学生注册
+              </button>
+            )}
+            <button
+              onClick={() => (user ? onOpenPublish() : onOpenAuth('login'))}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs shrink-0 transition"
+            >
+              <Plus className="w-4 h-4" />
+              发布我的工作台电路
+            </button>
+          </div>
         </div>
 
         {/* Search & Category Pills */}

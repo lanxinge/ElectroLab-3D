@@ -26,10 +26,10 @@ describe('ElectroLab 3D Full-Stack REST API', () => {
     expect(res.body.ok).toBe(true);
   });
 
-  it('returns 5 seeded forum posts with circuit previews', async () => {
+  it('returns seeded forum posts with circuit previews', async () => {
     const res = await request(app).get('/api/forum/posts');
     expect(res.status).toBe(200);
-    expect(res.body.posts.length).toBe(5);
+    expect(res.body.posts.length).toBe(CIRCUIT_PRESETS.length);
     expect(res.body.posts[0].circuitData.components.length).toBeGreaterThan(0);
   });
 

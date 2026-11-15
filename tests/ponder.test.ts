@@ -14,10 +14,10 @@ import { usePonderStore } from '../src/store/usePonderStore';
 
 const ALL_CATALOG_TYPES = Object.keys(COMPONENT_CATALOG) as ComponentType[];
 
-describe('Create-Mod Style Ponder System (All 46 Circuit Modules)', () => {
+describe('Create-Mod Style Ponder System (All 53 Circuit Modules)', () => {
   it('defines complete storyboard specs for every single ComponentType in catalog', () => {
-    expect(ALL_CATALOG_TYPES.length).toBe(46);
-    expect(ALL_PONDER_TYPES.length).toBe(46);
+    expect(ALL_CATALOG_TYPES.length).toBe(53);
+    expect(ALL_PONDER_TYPES.length).toBe(53);
 
     for (const type of ALL_CATALOG_TYPES) {
       const spec = PONDER_DATA[type];
@@ -37,11 +37,11 @@ describe('Create-Mod Style Ponder System (All 46 Circuit Modules)', () => {
     }
   });
 
-  it('registers 46 distinct 3D diorama builder functions (one unique showcase per module)', () => {
+  it('registers 53 distinct 3D diorama builder functions (one unique showcase per module)', () => {
     const builders = ALL_CATALOG_TYPES.map((t) => PONDER_SCENE_BUILDERS[t]);
     expect(builders.every((fn) => typeof fn === 'function')).toBe(true);
     const uniqueFnSet = new Set(builders);
-    expect(uniqueFnSet.size).toBe(46);
+    expect(uniqueFnSet.size).toBe(53);
   });
 
   it('instantiates, animates, reads telemetry metrics, and disposes all 46 3D dioramas cleanly', () => {
@@ -318,5 +318,66 @@ describe('Create-Mod Style Ponder System (All 46 Circuit Modules)', () => {
     expect(trialIn.liveMetrics[0].value).toBe('1 (HIGH +5.0V)');
     expect(trialIn.pinSummary).toContain('5.00V(1)');
     expect(trialIn.applyPropsPatch).toEqual({ state: 1 });
+
+    // v0.6 new modules instance bridge (NIXIE_TUBE & ALU_4BIT)
+    const nixComp = {
+      id: 'nix1',
+      type: 'NIXIE_TUBE' as const,
+      label: 'NIX1',
+      pos3d: [0, 0, 0] as [number, number, number],
+      rotationY: 0,
+      pos2d: { x: 200, y: 200 },
+      rot2d: 0,
+      props: { bcdBlank: true },
+    };
+    const nixTel = {
+      componentId: 'nix1',
+      voltageDrop: 0,
+      current: 0,
+      power: 0.14,
+      maxPower: 2,
+      loadRatio: 0.07,
+      overloaded: false,
+      logicState: 5,
+      pinVoltages: { d0: 5, d1: 0, d2: 5, d3: 0 },
+    };
+    const nixCtx = deriveInstancePonderContext(nixComp, nixTel, [nixComp], []);
+    expect(nixCtx.liveMetrics.some((m) => m.value.includes('5'))).toBe(true);
+    const nixTrial = deriveInstancePonderContext(nixComp, nixTel, [nixComp], [], {
+      digit: 11,
+      bcdBlank: 0,
+    });
+    expect(nixTrial.isOverridden).toBe(true);
+    expect(nixTrial.pinSummary).toContain('D3(8): 5.00V(1)');
+
+    const aluComp = {
+      id: 'alu1',
+      type: 'ALU_4BIT' as const,
+      label: 'ALU1',
+      pos3d: [0, 0, 0] as [number, number, number],
+      rotationY: 0,
+      pos2d: { x: 300, y: 200 },
+      rot2d: 0,
+      props: {},
+    };
+    const aluTel = {
+      componentId: 'alu1',
+      voltageDrop: 0,
+      current: 0,
+      power: 0,
+      maxPower: 1,
+      loadRatio: 0,
+      overloaded: false,
+      logicState: 7,
+      pinVoltages: {
+        a0: 5, a1: 0, a2: 5, a3: 0,
+        b0: 0, b1: 5, b2: 0, b3: 0,
+        op0: 0, op1: 0,
+        f0: 5, f1: 5, f2: 5, f3: 0,
+        cout: 0, zero: 0,
+      },
+    };
+    const aluCtx = deriveInstancePonderContext(aluComp, aluTel, [aluComp], []);
+    expect(aluCtx.causalExplanation).toContain('ALU');
   });
 });

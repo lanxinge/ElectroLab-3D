@@ -11,7 +11,11 @@ import {
   packageCircuitAsIc,
   validateBooleanExpression,
 } from '../src/engine/customIcEngine';
-import { createInitialRuntimeState, solveCircuitStep } from '../src/engine/mnaSolver';
+import {
+  advanceCircuitSimulation,
+  createInitialRuntimeState,
+  solveCircuitStep,
+} from '../src/engine/mnaSolver';
 import { CIRCUIT_PRESETS } from '../src/presets/circuitPresets';
 import { parseProjectFile, serializeProjectFile } from '../src/utils/projectFileIO';
 import { useUIStore } from '../src/store/useUIStore';
@@ -676,5 +680,266 @@ describe('V3 Expanded Modules, Custom Truth Chips, Hierarchical ICs & Project IO
     expect(transitions).toBeGreaterThanOrEqual(4);
     expect(maxVcPostStart).toBeGreaterThan(3.1);
     expect(maxVcPostStart).toBeLessThan(3.6);
+  });
+});
+
+function makePosWire(
+  id: string,
+  fc: string,
+  fp: string,
+  tc: string,
+  tp: string
+): Wire {
+  return makeWire(id, fc, fp, tc, tp);
+}
+
+describe('AC Bidirectional Flow, Nixie/Encoder Display & Turing-Complete Components (v0.6)', () => {
+  it('classifies pure 50Hz AC wires as bidirectional AC while half-wave diode branch stays unidirectional pulsating DC', () => {
+    const circuit: CircuitData = {
+      components: [
+        makeComp('gnd', 'GROUND'),
+        makeComp('ac1', 'AC_SOURCE', { amplitude: 10, frequency: 50, phaseDeg: 0 }),
+        makeComp('r_ac', 'RESISTOR', { resistance: 100 }),
+        makeComp('d1', 'DIODE'),
+        makeComp('r_dc', 'RESISTOR', { resistance: 100 }),
+      ],
+      wires: [
+        makePosWire('w_gnd', 'ac1', 'neg', 'gnd', 'gnd'),
+        makePosWire('w_ac_r', 'ac1', 'pos', 'r_ac', 'a'),
+        makePosWire('w_rac_g', 'r_ac', 'b', 'gnd', 'gnd'),
+        makePosWire('w_ac_d', 'ac1', 'pos', 'd1', 'anode'),
+        makePosWire('w_rect_load', 'd1', 'cathode', 'r_dc', 'a'),
+        makePosWire('w_rdc_g', 'r_dc', 'b', 'gnd', 'gnd'),
+      ],
+    };
+
+    const st = createInitialRuntimeState();
+    let lastRes = advanceCircuitSimulation(circuit, st, 0.016);
+    for (let i = 0; i < 4; i++) {
+      lastRes = advanceCircuitSimulation(circuit, st, 0.016);
+    }
+
+    const acWire = lastRes.wireTelemetryById.w_ac_r;
+    expect(acWire.isAc).toBe(true);
+    expect(acWire.acFrequency).toBe(50);
+    expect(acWire.iRms ?? 0).toBeCloseTo(10 / Math.SQRT2 / 100, 2);
+    expect(Math.abs(acWire.dcMean ?? 0)).toBeLessThan(0.03);
+
+    const rectWire = lastRes.wireTelemetryById.w_rect_load;
+    expect(rectWire.isAc).toBe(false);
+    expect(rectWire.dcMean ?? 0).toBeGreaterThan(0.02);
+  });
+
+  it('solves NIXIE_TUBE digit decoding and optional BCD blanking (>9)', () => {
+    const d0 = makeComp('d0', 'LOGIC_IN', { state: 1 });
+    const d1 = makeComp('d1', 'LOGIC_IN', { state: 0 });
+    const d2 = makeComp('d2', 'LOGIC_IN', { state: 0 });
+    const d3 = makeComp('d3', 'LOGIC_IN', { state: 1 });
+    const nix = makeComp('nix', 'NIXIE_TUBE', { bcdBlank: true });
+    const circuit: CircuitData = {
+      components: [d0, d1, d2, d3, nix],
+      wires: [
+        makePosWire('w0', 'd0', 'out', 'nix', 'd0'),
+        makePosWire('w1', 'd1', 'out', 'nix', 'd1'),
+        makePosWire('w2', 'd2', 'out', 'nix', 'd2'),
+        makePosWire('w3', 'd3', 'out', 'nix', 'd3'),
+      ],
+    };
+
+    const st = createInitialRuntimeState();
+    const res9 = solveCircuitStep(circuit, st, 0);
+    expect(res9.telemetryById.nix.logicState).toBe(9);
+    expect(res9.telemetryById.nix.power).toBeCloseTo(0.18, 3);
+    expect(res9.telemetryById.nix.extraInfo).toContain('9');
+
+    // Binary 1011 = 11 (B) with bcdBlank=true blanks visual glow (0.02W & 熄灭 note)
+    d1.props.state = 1;
+    const resBlank = solveCircuitStep(circuit, st, 0);
+    expect(resBlank.telemetryById.nix.logicState).toBe(11);
+    expect(resBlank.telemetryById.nix.power).toBeCloseTo(0.02, 3);
+    expect(resBlank.telemetryById.nix.extraInfo).toContain('熄灭');
+
+    // With bcdBlank=false displays hex B cleanly at 0.18W
+    nix.props.bcdBlank = false;
+    const resHex = solveCircuitStep(circuit, st, 0);
+    expect(resHex.telemetryById.nix.logicState).toBe(11);
+    expect(resHex.telemetryById.nix.power).toBeCloseTo(0.18, 3);
+    expect(resHex.telemetryById.nix.extraInfo).toContain('B');
+  });
+
+  it('solves ENCODER_4_2 priority/GS, DECODER_2_4 INH, and MUX_4BIT selection', () => {
+    const i0 = makeComp('i0', 'LOGIC_IN', { state: 0 });
+    const i1 = makeComp('i1', 'LOGIC_IN', { state: 1 });
+    const i2 = makeComp('i2', 'LOGIC_IN', { state: 1 });
+    const i3 = makeComp('i3', 'LOGIC_IN', { state: 0 });
+    const enc = makeComp('enc', 'ENCODER_4_2');
+    const dec = makeComp('dec', 'DECODER_2_4');
+    const inh = makeComp('inh', 'LOGIC_IN', { state: 0 });
+
+    const encDecCircuit: CircuitData = {
+      components: [i0, i1, i2, i3, enc, dec, inh],
+      wires: [
+        makePosWire('w0', 'i0', 'out', 'enc', 'i0'),
+        makePosWire('w1', 'i1', 'out', 'enc', 'i1'),
+        makePosWire('w2', 'i2', 'out', 'enc', 'i2'),
+        makePosWire('w3', 'i3', 'out', 'enc', 'i3'),
+        makePosWire('wa0', 'enc', 'y0', 'dec', 'a0'),
+        makePosWire('wa1', 'enc', 'y1', 'dec', 'a1'),
+        makePosWire('winh', 'inh', 'out', 'dec', 'inh'),
+      ],
+    };
+
+    const st = createInitialRuntimeState();
+    const r = solveCircuitStep(encDecCircuit, st, 0);
+    // I2 overrides I1 -> Y=2 (10), GS=1 -> logicState = (1<<2)|(1<<1)|0 = 6; Decoder Y2=1 -> bits=4
+    expect(r.telemetryById.enc.logicState).toBe(6);
+    expect(r.telemetryById.enc.pinVoltages?.gs).toBeGreaterThan(2.5);
+    expect(r.telemetryById.enc.pinVoltages?.y1).toBeGreaterThan(2.5);
+    expect(r.telemetryById.enc.pinVoltages?.y0).toBeLessThan(2.5);
+    expect(r.telemetryById.dec.logicState).toBe(4);
+    expect(r.telemetryById.dec.pinVoltages?.y2).toBeGreaterThan(2.5);
+    expect(r.telemetryById.dec.pinVoltages?.y1).toBeLessThan(2.5);
+
+    // Disable decoder with INH=1
+    inh.props.state = 1;
+    const rInh = solveCircuitStep(encDecCircuit, st, 0);
+    expect(rInh.telemetryById.dec.logicState).toBe(0);
+    expect(rInh.telemetryById.dec.pinVoltages?.y2).toBeLessThan(2.5);
+
+    // MUX_4BIT test: A=5 (0101), B=12 (1100)
+    const aPins = [1, 0, 1, 0].map((v, i) => makeComp(`a${i}`, 'LOGIC_IN', { state: v }));
+    const bPins = [0, 0, 1, 1].map((v, i) => makeComp(`b${i}`, 'LOGIC_IN', { state: v }));
+    const sel = makeComp('sel', 'LOGIC_IN', { state: 0 });
+    const mux = makeComp('mux', 'MUX_4BIT');
+    const muxCircuit: CircuitData = {
+      components: [...aPins, ...bPins, sel, mux],
+      wires: [
+        ...aPins.map((c, i) => makePosWire(`wa${i}`, c.id, 'out', 'mux', `a${i}`)),
+        ...bPins.map((c, i) => makePosWire(`wb${i}`, c.id, 'out', 'mux', `b${i}`)),
+        makePosWire('wsel', 'sel', 'out', 'mux', 'sel'),
+      ],
+    };
+    const stMux = createInitialRuntimeState();
+    expect(solveCircuitStep(muxCircuit, stMux, 0).telemetryById.mux.logicState).toBe(5);
+    sel.props.state = 1;
+    expect(solveCircuitStep(muxCircuit, stMux, 0).telemetryById.mux.logicState).toBe(12);
+  });
+
+  it('solves Turing-complete suite: REGISTER_4BIT, ALU_4BIT, and RAM_16X4 read/write', () => {
+    // Test ALU_4BIT op[1:0]: 00=ADD (11+6 -> 1, COUT=1), 01=SUB (5-5 -> 0, ZERO=1)
+    const aluA = [1, 1, 0, 1].map((v, i) => makeComp(`aa${i}`, 'LOGIC_IN', { state: v })); // 11
+    const aluB = [0, 1, 1, 0].map((v, i) => makeComp(`ab${i}`, 'LOGIC_IN', { state: v })); // 6
+    const ops = [0, 0].map((v, i) => makeComp(`op${i}`, 'LOGIC_IN', { state: v }));
+    const alu = makeComp('alu', 'ALU_4BIT');
+    const aluCircuit: CircuitData = {
+      components: [...aluA, ...aluB, ...ops, alu],
+      wires: [
+        ...aluA.map((c, i) => makePosWire(`wa${i}`, c.id, 'out', 'alu', `a${i}`)),
+        ...aluB.map((c, i) => makePosWire(`wb${i}`, c.id, 'out', 'alu', `b${i}`)),
+        ...ops.map((c, i) => makePosWire(`wop${i}`, c.id, 'out', 'alu', `op${i}`)),
+      ],
+    };
+    const stAlu = createInitialRuntimeState();
+    const rAdd = solveCircuitStep(aluCircuit, stAlu, 0);
+    expect(rAdd.telemetryById.alu.logicState).toBe(1);
+    expect(rAdd.telemetryById.alu.pinVoltages?.cout).toBeGreaterThan(2.5);
+    expect(rAdd.telemetryById.alu.pinVoltages?.zero).toBeLessThan(2.5);
+
+    // SUB equal values -> F=0, ZERO=1
+    aluA.forEach((c, i) => {
+      c.props.state = aluB[i].props.state;
+    });
+    ops[0].props.state = 1; // op=01 SUB
+    const rSub = solveCircuitStep(aluCircuit, stAlu, 0);
+    expect(rSub.telemetryById.alu.logicState).toBe(0);
+    expect(rSub.telemetryById.alu.pinVoltages?.zero).toBeGreaterThan(2.5);
+
+    // Test REGISTER_4BIT + RAM_16X4 sequential WE/CLK/RST
+    const addrPins = [1, 0, 0, 0].map((v, i) => makeComp(`ad${i}`, 'LOGIC_IN', { state: v })); // addr 1
+    const dinPins = [1, 0, 0, 1].map((v, i) => makeComp(`di${i}`, 'LOGIC_IN', { state: v })); // data 9
+    const clk = makeComp('clk', 'LOGIC_IN', { state: 0 });
+    const we = makeComp('we', 'LOGIC_IN', { state: 0 });
+    const rst = makeComp('rst', 'LOGIC_IN', { state: 0 });
+    const ram = makeComp('ram', 'RAM_16X4', { initHex: 'F 3 7' });
+    const reg = makeComp('reg', 'REGISTER_4BIT');
+
+    const memCircuit: CircuitData = {
+      components: [...addrPins, ...dinPins, clk, we, rst, ram, reg],
+      wires: [
+        ...addrPins.map((c, i) => makePosWire(`wad${i}`, c.id, 'out', 'ram', `a${i}`)),
+        ...dinPins.map((c, i) => makePosWire(`wdi${i}`, c.id, 'out', 'ram', `d${i}`)),
+        makePosWire('wclk_r', 'clk', 'out', 'ram', 'clk'),
+        makePosWire('wwe_r', 'we', 'out', 'ram', 'we'),
+        ...dinPins.map((c, i) => makePosWire(`wregd${i}`, c.id, 'out', 'reg', `d${i}`)),
+        makePosWire('wclk_g', 'clk', 'out', 'reg', 'clk'),
+        makePosWire('wwe_g', 'we', 'out', 'reg', 'we'),
+        makePosWire('wrst_g', 'rst', 'out', 'reg', 'rst'),
+      ],
+    };
+
+    const stMem = createInitialRuntimeState();
+    // Initial async read from initHex[1] = 3
+    const rInit = solveCircuitStep(memCircuit, stMem, 0);
+    expect(rInit.telemetryById.ram.logicState).toBe(3);
+    expect(rInit.telemetryById.reg.logicState).toBe(0);
+
+    // Rising edge with WE=1 writes 9 to addr=2 and latches 9 into reg
+    addrPins[0].props.state = 0;
+    addrPins[1].props.state = 1; // addr = 2
+    we.props.state = 1;
+    solveCircuitStep(memCircuit, stMem, 0.01); // clk=0 settle
+    clk.props.state = 1;
+    const rWrite = solveCircuitStep(memCircuit, stMem, 0.01); // rising edge
+    expect(rWrite.telemetryById.ram.logicState).toBe(9);
+    expect(rWrite.telemetryById.reg.logicState).toBe(9);
+
+    // Switch addr to 0 then back to 2 -> RAM persisted 9; assert RST=1 clears REG
+    we.props.state = 0;
+    clk.props.state = 0;
+    addrPins[1].props.state = 0;
+    expect(solveCircuitStep(memCircuit, stMem, 0.01).telemetryById.ram.logicState).toBe(0xf);
+    addrPins[1].props.state = 1;
+    rst.props.state = 1;
+    const rReadBack = solveCircuitStep(memCircuit, stMem, 0.01);
+    expect(rReadBack.telemetryById.ram.logicState).toBe(9);
+    expect(rReadBack.telemetryById.reg.logicState).toBe(0);
+  });
+
+  it('solves v0.6 showcase presets (AC+Nixie+Encoder and 4-bit Turing CPU datapath)', () => {
+    const acPreset = CIRCUIT_PRESETS.find((p) => p.id === 'preset-ac-nixie-encoder');
+    const cpuPreset = CIRCUIT_PRESETS.find((p) => p.id === 'preset-turing-4bit-cpu');
+    expect(acPreset).toBeDefined();
+    expect(cpuPreset).toBeDefined();
+
+    // Run AC+Nixie preset for ~0.08s (> 3 cycles at 50Hz) via full-cycle AC driver
+    const stAc = createInitialRuntimeState();
+    let resAc = advanceCircuitSimulation(acPreset!.circuit, stAc, 0.016);
+    for (let i = 0; i < 4; i++) {
+      resAc = advanceCircuitSimulation(acPreset!.circuit, stAc, 0.016);
+    }
+    const acWires = Object.values(resAc.wireTelemetryById);
+    expect(acWires.some((w) => w.isAc === true)).toBe(true);
+    const nixComp = acPreset!.circuit.components.find((c) => c.type === 'NIXIE_TUBE');
+    const decComp = acPreset!.circuit.components.find((c) => c.type === 'DECODER_2_4');
+    expect(nixComp).toBeDefined();
+    expect(decComp).toBeDefined();
+    expect(resAc.telemetryById[nixComp!.id].logicState).toBe(2);
+    expect(resAc.telemetryById[decComp!.id].logicState).toBe(4); // Y2=1 -> bits 0100 = 4
+
+    // Run 4-bit CPU preset for 3.2s and verify accumulator advances through multiple distinct states
+    const stCpu = createInitialRuntimeState();
+    const nixAcc = cpuPreset!.circuit.components.find(
+      (c) => c.type === 'NIXIE_TUBE' && (c.id.includes('acc') || c.label.includes('ACC'))
+    );
+    expect(nixAcc).toBeDefined();
+    const seenDigits = new Set<number>();
+    for (let i = 0; i < 64; i++) {
+      const r = advanceCircuitSimulation(cpuPreset!.circuit, stCpu, 0.05);
+      const digit = r.telemetryById[nixAcc!.id].logicState;
+      if (typeof digit === 'number' && digit >= 0) {
+        seenDigits.add(digit);
+      }
+    }
+    expect(seenDigits.size).toBeGreaterThanOrEqual(2);
   });
 });

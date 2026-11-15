@@ -2,6 +2,7 @@ import React from 'react';
 import { Activity, AlertTriangle, Cpu, Flame, PackagePlus, RotateCw, SlidersHorizontal, Sparkles, Trash2, Zap } from 'lucide-react';
 import { COMPONENT_CATALOG, formatEngineeringValue } from '../engine/componentCatalog';
 import { parseCustomIcPayload, parseTruthChipConfig } from '../engine/customIcEngine';
+import { encodeRamHex, parseRamInitHex } from '../engine/mnaSolver';
 import { useCircuitStore } from '../store/useCircuitStore';
 import { usePonderStore } from '../store/usePonderStore';
 import { useUIStore } from '../store/useUIStore';
@@ -12,6 +13,7 @@ export const PropertyInspector: React.FC<{ compact?: boolean }> = ({ compact = t
   const wires = useCircuitStore((s) => s.wires);
   const telemetryById = useCircuitStore((s) => s.telemetryById);
   const wireTelemetryById = useCircuitStore((s) => s.wireTelemetryById);
+  const simRuntime = useCircuitStore((s) => s.simRuntime);
   const oscilloscopeChannels = useCircuitStore((s) => s.oscilloscopeChannels);
 
   const updateComponentLabel = useCircuitStore((s) => s.updateComponentLabel);
@@ -67,6 +69,17 @@ export const PropertyInspector: React.FC<{ compact?: boolean }> = ({ compact = t
                 : `${((wt?.current ?? 0) * 1000).toFixed(2)} mA`}
             </span>
           </div>
+          {wt?.isAc && (
+            <div className="text-cyan-300">
+              交流有效值:{' '}
+              {(wt.iRms ?? 0) >= 1
+                ? `${(wt.iRms ?? 0).toFixed(3)} A~`
+                : `${((wt.iRms ?? 0) * 1000).toFixed(2)} mA~`}{' '}
+              <span className="text-[10px] text-amber-300">
+                (双向交变 {wt.acFrequency ?? 50}Hz)
+              </span>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -782,6 +795,95 @@ export const PropertyInspector: React.FC<{ compact?: boolean }> = ({ compact = t
             <div>VCC/GND 供电后建立 [1/3, 2/3]·VCC 双门限；TRIG &lt; 1/3 VCC 置位 Q=1（OUT=VCC，DIS 开路）；THRES &gt; 2/3 VCC 复位 Q=0（OUT=0，DIS 对地放电）。</div>
           </div>
         )}
+
+        {comp.type === 'NIXIE_TUBE' && (
+          <label className="flex items-center justify-between text-[11px]">
+            <span className="text-slate-400">十进制 BCD 消隐 (&gt;9 熄灭):</span>
+            <input
+              type="checkbox"
+              checked={Boolean(comp.props.bcdBlank)}
+              onChange={(e) => updateComponentProp(comp.id, 'bcdBlank', e.target.checked)}
+              className="accent-orange-500"
+            />
+          </label>
+        )}
+
+        {comp.type === 'ALU_4BIT' && (
+          <div className="p-2 rounded bg-amber-950/30 border border-amber-500/30 text-[10px] text-amber-200/90 space-y-1 font-mono">
+            <div className="font-semibold text-amber-300 font-sans">ALU 操作码对照表 (OP1, OP0)</div>
+            <div className="grid grid-cols-2 gap-1">
+              <span>00: F = A + B (ADD)</span>
+              <span>01: F = A - B (SUB)</span>
+              <span>10: F = A &amp; B (AND)</span>
+              <span>11: F = A ^ B (XOR)</span>
+            </div>
+            <div className="text-[9.5px] text-slate-400 font-sans">ZERO=1 当且仅当 F=0000，可接入条件跳转选择器。</div>
+          </div>
+        )}
+
+        {comp.type === 'RAM_16X4' && (() => {
+          const liveMem = simRuntime.ramMemory?.[comp.id] ?? parseRamInitHex(comp.props.initHex);
+          const pinV = tel?.pinVoltages ?? {};
+          const activeAddr =
+            (((pinV.a3 ?? 0) >= 2.5 ? 1 : 0) << 3) |
+            (((pinV.a2 ?? 0) >= 2.5 ? 1 : 0) << 2) |
+            (((pinV.a1 ?? 0) >= 2.5 ? 1 : 0) << 1) |
+            ((pinV.a0 ?? 0) >= 2.5 ? 1 : 0);
+          return (
+            <div className="space-y-1.5" data-testid="ram-inspector-panel">
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-emerald-300 font-semibold">16×4 SRAM 存储单元 (当前地址 0x{activeAddr.toString(16).toUpperCase()})</span>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => updateComponentProp(comp.id, 'initHex', '0000000000000000')}
+                    className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
+                  >
+                    清零
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateComponentProp(comp.id, 'initHex', '0123456789ABCDEF')}
+                    className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-sky-300"
+                  >
+                    0..F表
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 gap-1 font-mono text-[10px]">
+                {Array.from({ length: 16 }, (_, idx) => {
+                  const val = (liveMem[idx] ?? 0) & 0x0f;
+                  const isAct = idx === activeAddr;
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-center justify-between px-1.5 py-0.5 rounded border ${
+                        isAct
+                          ? 'bg-emerald-950/70 border-emerald-400 text-emerald-200'
+                          : 'bg-slate-900 border-slate-800 text-slate-300'
+                      }`}
+                    >
+                      <span className="text-[9px] text-slate-500">@{idx.toString(16).toUpperCase()}</span>
+                      <input
+                        type="text"
+                        maxLength={1}
+                        value={val.toString(16).toUpperCase()}
+                        onChange={(e) => {
+                          const raw = e.target.value.toUpperCase().replace(/[^0-9A-F]/g, '');
+                          if (!raw) return;
+                          const next = [...parseRamInitHex(comp.props.initHex)];
+                          next[idx] = parseInt(raw[0], 16) & 0x0f;
+                          updateComponentProp(comp.id, 'initHex', encodeRamHex(next));
+                        }}
+                        className="w-5 text-center bg-transparent font-bold text-amber-300 focus:outline-none"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Live Telemetry Box */}

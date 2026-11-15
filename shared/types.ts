@@ -35,11 +35,12 @@ export type ComponentType =
   // Instruments
   | 'VOLTMETER'
   | 'AMMETER'
-  // Digital Logic
+  // Digital Logic & Computer Architecture
   | 'LOGIC_IN'
   | 'CLOCK'
   | 'LOGIC_OUT'
   | 'HEX_DISPLAY'
+  | 'NIXIE_TUBE'
   | 'AND'
   | 'OR'
   | 'NOT'
@@ -53,6 +54,12 @@ export type ComponentType =
   | 'D_FF'
   | 'JK_FF'
   | 'COUNTER_4BIT'
+  | 'ENCODER_4_2'
+  | 'DECODER_2_4'
+  | 'MUX_4BIT'
+  | 'REGISTER_4BIT'
+  | 'ALU_4BIT'
+  | 'RAM_16X4'
   // Custom Programmable & Cloud Packaged ICs
   | 'CUSTOM_TRUTH_8'
   | 'CUSTOM_TRUTH_16'
@@ -125,6 +132,10 @@ export interface WireTelemetry {
   wireId: string;
   voltage: number;
   current: number; // signed current from -> to
+  iRms?: number; // 1-cycle RMS current (A) when AC is active
+  dcMean?: number; // 1-cycle mean current (A)
+  isAc?: boolean; // True when current genuinely alternates direction over the AC cycle
+  acFrequency?: number; // Dominant AC frequency (Hz)
 }
 
 export interface SimulationStepResult {

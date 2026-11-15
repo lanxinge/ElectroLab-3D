@@ -3,6 +3,7 @@ import type { CircuitComponent, Wire } from '../../shared/types';
 import { getLessonById, TUTORIAL_LESSONS } from '../tutorial/curriculumIndex';
 import type { TutorialCircuitStage, TutorialEvalContext } from '../tutorial/tutorialTypes';
 import { useCircuitStore, type SidebarMode } from './useCircuitStore';
+import { useUIStore } from './useUIStore';
 
 const COMPLETED_STORAGE_KEY = 'electrolab_tutorial_completed_v1';
 
@@ -64,9 +65,11 @@ interface TutorialStoreState {
   completedStageIds: string[];
   catalogOpen: boolean;
   inspectorOpen: boolean;
+  preferredVolume: 'all' | 'vol1' | 'vol2';
   freePlaySnapshot: FreePlaySnapshot | null;
 
-  enterTutorial: (lessonId?: string, stageIndex?: number) => void;
+  enterTutorial: (lessonId?: string, stageIndex?: number, volume?: 'all' | 'vol1' | 'vol2') => void;
+  setPreferredVolume: (volume: 'all' | 'vol1' | 'vol2') => void;
   exitTutorial: (keepCurrentCircuit?: boolean) => void;
   selectLesson: (lessonId: string, stageIndex?: number) => void;
   selectStage: (stageIndex: number) => void;
@@ -109,7 +112,18 @@ export function buildTutorialEvalContext(stage: TutorialCircuitStage): TutorialE
     hasSwitched: snap.transientAnchor.hasSwitched,
     initialCapVoltages: snap.transientAnchor.initialCapVoltages,
     initialIndCurrents: snap.transientAnchor.initialIndCurrents,
+    waveformStatsById: snap.simRuntime?.waveformStats ?? {},
   };
+}
+
+function advanceCircuitBySeconds(seconds: number): void {
+  const sec = Math.max(0, seconds);
+  if (sec <= 0) return;
+  const steps = Math.max(1, Math.round(sec / 0.02));
+  const stepDt = (sec / steps) / Math.max(0.005, useCircuitStore.getState().timeScale);
+  for (let i = 0; i < steps; i++) {
+    useCircuitStore.getState().stepOnce(stepDt);
+  }
 }
 
 export const useTutorialStore = create<TutorialStoreState>((set, get) => ({
@@ -119,9 +133,12 @@ export const useTutorialStore = create<TutorialStoreState>((set, get) => ({
   completedStageIds: loadInitialCompleted(),
   catalogOpen: false,
   inspectorOpen: false,
+  preferredVolume: 'all',
   freePlaySnapshot: null,
 
-  enterTutorial: (lessonIdArg, stageIndexArg) => {
+  setPreferredVolume: (preferredVolume) => set({ preferredVolume }),
+
+  enterTutorial: (lessonIdArg, stageIndexArg, volumeArg) => {
     const curState = get();
     const circuitSnap = useCircuitStore.getState();
 
@@ -136,9 +153,15 @@ export const useTutorialStore = create<TutorialStoreState>((set, get) => ({
           sidebarMode: circuitSnap.sidebarMode,
         };
 
-    const targetLesson = getLessonById(lessonIdArg ?? curState.currentLessonId);
+    const fallbackLessonId =
+      volumeArg === 'vol1'
+        ? 'ch0-loop-and-meters'
+        : volumeArg === 'vol2'
+        ? 'ch7-diodes-and-rectifiers'
+        : curState.currentLessonId;
+    const targetLesson = getLessonById(lessonIdArg ?? fallbackLessonId);
     const maxStageIdx = Math.max(0, targetLesson.stages.length - 1);
-    const rawIdx = stageIndexArg ?? (lessonIdArg ? 0 : curState.currentStageIndex);
+    const rawIdx = stageIndexArg ?? (lessonIdArg || volumeArg ? 0 : curState.currentStageIndex);
     const clampedIdx = Math.max(0, Math.min(maxStageIdx, rawIdx));
     const stage = targetLesson.stages[clampedIdx];
 
@@ -146,6 +169,7 @@ export const useTutorialStore = create<TutorialStoreState>((set, get) => ({
       isActive: true,
       currentLessonId: targetLesson.id,
       currentStageIndex: clampedIdx,
+      preferredVolume: volumeArg ?? curState.preferredVolume,
       freePlaySnapshot: snapshot,
       catalogOpen: false,
     });
@@ -186,6 +210,9 @@ export const useTutorialStore = create<TutorialStoreState>((set, get) => ({
       circuitStore.setSidebarMode(snap.sidebarMode);
     } else {
       circuitStore.setTimeScale(1);
+      if (circuitStore.oscilloscopeChannels.length > 0) {
+        useUIStore.getState().setAnalysisOpen(true);
+      }
     }
   },
 
@@ -277,14 +304,13 @@ export const useTutorialStore = create<TutorialStoreState>((set, get) => ({
         cs.setTimeScale(act.scale);
       } else if (act.kind === 'selectComponent') {
         cs.setSelected({ kind: 'component', id: act.componentId });
+      } else if (act.kind === 'wait') {
+        advanceCircuitBySeconds(act.seconds);
       }
     }
 
-    // Advance 0.80s of simulated time cleanly so transients settle, fuses trip, and AC RMS converges
-    const baseDt = 0.02 / Math.max(0.005, useCircuitStore.getState().timeScale);
-    for (let k = 0; k < 40; k++) {
-      useCircuitStore.getState().stepOnce(baseDt);
-    }
+    // Advance simulated time cleanly so transients settle, fuses trip, and AC RMS / waveform edges converge
+    advanceCircuitBySeconds(stage.checkpoint.autoDemo.settleSeconds ?? 0.8);
 
     const result = stage.checkpoint.check(buildTutorialEvalContext(stage));
     if (result.passed) {

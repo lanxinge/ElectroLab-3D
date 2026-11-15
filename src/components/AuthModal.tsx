@@ -1,9 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { GraduationCap, LogIn, UserPlus, X } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 
-export const AuthModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [tab, setTab] = useState<'login' | 'register'>('login');
+export const AuthModal: React.FC<{
+  onClose: () => void;
+  initialTab?: 'login' | 'register';
+}> = ({ onClose, initialTab = 'login' }) => {
+  const [tab, setTab] = useState<'login' | 'register'>(initialTab);
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -47,7 +54,10 @@ export const AuthModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div
+      data-testid="auth-modal"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+    >
       <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800">
           <div className="flex items-center gap-2 font-semibold text-slate-100">
@@ -62,6 +72,7 @@ export const AuthModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs font-medium">
             <button
+              data-testid="auth-tab-login"
               onClick={() => {
                 setTab('login');
                 setError(null);
@@ -74,6 +85,7 @@ export const AuthModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               登录账号
             </button>
             <button
+              data-testid="auth-tab-register"
               onClick={() => {
                 setTab('register');
                 setError(null);
