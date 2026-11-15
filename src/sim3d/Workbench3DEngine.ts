@@ -7,7 +7,7 @@ import type {
   Wire,
   WireTelemetry,
 } from '../../shared/types';
-import { COMPONENT_CATALOG, getPinWorld3D } from '../engine/componentCatalog';
+import { COMPONENT_CATALOG, getComponentMeshSignature, getPinWorld3D } from '../engine/componentCatalog';
 import { buildComponentMesh, disposeObject3D, type ComponentMeshHandle } from './meshes';
 import type { ActiveTool, SelectedEntity } from '../store/useCircuitStore';
 
@@ -31,7 +31,6 @@ export interface EngineCallbacks {
     wiringDraftFrom: PinRef | null;
     show3DLabels: boolean;
   };
-  onStepSim: (dt: number) => void;
   onSelect: (sel: SelectedEntity | null) => void;
   onDeleteEntity: (kind: 'component' | 'wire', id: string) => void;
   onStartDragHistory: () => void;
@@ -589,7 +588,15 @@ export class Workbench3DEngine {
     let geometryChanged = false;
     for (const comp of components) {
       let handle = this.compHandles.get(comp.id);
+      const nextSig = getComponentMeshSignature(comp);
       if (!handle) {
+        handle = buildComponentMesh(comp);
+        this.compHandles.set(comp.id, handle);
+        this.compGroup.add(handle.group);
+        geometryChanged = true;
+      } else if (handle.meshSignature !== nextSig) {
+        this.compGroup.remove(handle.group);
+        disposeObject3D(handle.group);
         handle = buildComponentMesh(comp);
         this.compHandles.set(comp.id, handle);
         this.compGroup.add(handle.group);
@@ -631,8 +638,6 @@ export class Workbench3DEngine {
     const rawDt = (timestamp - this.lastTimestamp) / 1000;
     this.lastTimestamp = timestamp;
     const dt = Math.min(0.035, Math.max(0.001, rawDt));
-
-    this.callbacks.onStepSim(dt);
 
     const state = this.callbacks.getState();
 

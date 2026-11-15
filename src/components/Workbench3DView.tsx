@@ -10,7 +10,7 @@ import {
   Video,
 } from 'lucide-react';
 import type { ComponentType, PinRef } from '../../shared/types';
-import { COMPONENT_CATALOG, WIRE_COLORS } from '../engine/componentCatalog';
+import { COMPONENT_CATALOG, getComponentPins, WIRE_COLORS } from '../engine/componentCatalog';
 import { Workbench3DEngine, type ProjectedLabel } from '../sim3d/Workbench3DEngine';
 import { useCircuitStore } from '../store/useCircuitStore';
 import { usePonderStore } from '../store/usePonderStore';
@@ -62,7 +62,6 @@ export const Workbench3DView: React.FC = () => {
             show3DLabels: st.show3DLabels,
           };
         },
-        onStepSim: (dt) => useCircuitStore.getState().stepSimulation(dt),
         onSelect: (sel) => useCircuitStore.getState().setSelected(sel),
         onDeleteEntity: (kind, id) => useCircuitStore.getState().removeEntity(kind, id),
         onStartDragHistory: () => useCircuitStore.getState().pushUndoSnapshot(),
@@ -139,7 +138,7 @@ export const Workbench3DView: React.FC = () => {
     ? (() => {
         const c = components.find((x) => x.id === hoverPin.componentId);
         if (!c) return null;
-        const p = COMPONENT_CATALOG[c.type]?.pins.find((x) => x.id === hoverPin.pinId);
+        const p = getComponentPins(c).find((x) => x.id === hoverPin.pinId);
         return `${c.label} · 引脚 ${p?.label || hoverPin.pinId}`;
       })()
     : null;

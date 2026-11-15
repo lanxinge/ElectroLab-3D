@@ -5,13 +5,21 @@ import type {
   SimulationStepResult,
   WireTelemetry,
 } from '../../shared/types';
-import { COMPONENT_CATALOG } from './componentCatalog';
+import { COMPONENT_CATALOG, getComponentPins } from './componentCatalog';
+import {
+  evaluateTruthChipOutputs,
+  expandCircuitHierarchy,
+  parseCustomIcPayload,
+  parseTruthChipConfig,
+} from './customIcEngine';
 
 export interface SimulationRuntimeState {
   time: number;
   capVoltages: Record<string, number>;
   indCurrents: Record<string, number>;
   flipFlopStates: Record<string, number>; // 0 | 1
+  counterValues: Record<string, number>; // 0..15 for COUNTER_4BIT
+  blownFuses: Record<string, boolean>;
   prevClockHigh: Record<string, boolean>;
   lastNodeVoltages: Record<string, number>;
 }
@@ -22,6 +30,8 @@ export function createInitialRuntimeState(): SimulationRuntimeState {
     capVoltages: {},
     indCurrents: {},
     flipFlopStates: {},
+    counterValues: {},
+    blownFuses: {},
     prevClockHigh: {},
     lastNodeVoltages: {},
   };
@@ -90,9 +100,16 @@ const DIGITAL_TYPES = new Set([
   'NOR',
   'XOR',
   'XNOR',
+  'MUX_2_1',
   'HALF_ADDER',
   'FULL_ADDER',
   'D_FF',
+  'JK_FF',
+  'COUNTER_4BIT',
+  'CUSTOM_TRUTH_8',
+  'CUSTOM_TRUTH_16',
+  'IC_PORT_IN',
+  'IC_PORT_OUT',
 ]);
 
 const IMPLICIT_REF_TYPES = new Set([...DIGITAL_TYPES, 'OPAMP']);
@@ -155,14 +172,77 @@ function getLedParams(color: string): { isVal: number; nFactor: number } {
   }
 }
 
+function evalZener(vd: number, vz: number): DiodeEval {
+  const fwd = evalDiode(vd, 1e-12, 1.2);
+  const vShift = Math.max(0.5, vz - 0.595);
+  const rev = evalDiode(-vd - vShift, 1e-12, 1.0);
+  return {
+    i: fwd.i - rev.i,
+    g: fwd.g + rev.g,
+  };
+}
+
+function evalNmos(
+  vgs: number,
+  vds: number,
+  vth: number,
+  kp: number
+): { id: number; gm: number; gds: number } {
+  const lam = 0.02;
+  if (vds >= 0) {
+    const vov = vgs - vth;
+    if (vov <= 0) {
+      return { id: 1e-9 * vds, gm: 0, gds: 1e-9 };
+    }
+    if (vds < vov) {
+      const mod = 1 + lam * vds;
+      const base = vov * vds - 0.5 * vds * vds;
+      return {
+        id: kp * base * mod + 1e-9 * vds,
+        gm: kp * vds * mod,
+        gds: kp * ((vov - vds) * mod + base * lam) + 1e-9,
+      };
+    }
+    const mod = 1 + lam * vds;
+    return {
+      id: 0.5 * kp * vov * vov * mod + 1e-9 * vds,
+      gm: kp * vov * mod,
+      gds: 0.5 * kp * vov * vov * lam + 1e-9,
+    };
+  }
+  // Symmetric inverted mode when Vds < 0
+  const vgd = vgs - vds;
+  const vdsRev = -vds;
+  const vov = vgd - vth;
+  if (vov <= 0) {
+    return { id: 1e-9 * vds, gm: 0, gds: 1e-9 };
+  }
+  if (vdsRev < vov) {
+    const mod = 1 + lam * vdsRev;
+    const base = vov * vdsRev - 0.5 * vdsRev * vdsRev;
+    return {
+      id: -(kp * base * mod) + 1e-9 * vds,
+      gm: 0,
+      gds: kp * ((vov - vdsRev) * mod + base * lam) + 1e-9,
+    };
+  }
+  const mod = 1 + lam * vdsRev;
+  return {
+    id: -(0.5 * kp * vov * vov * mod) + 1e-9 * vds,
+    gm: 0,
+    gds: 0.5 * kp * vov * vov * lam + 1e-9,
+  };
+}
+
 export function solveCircuitStep(
   circuit: CircuitData,
   simState: SimulationRuntimeState,
   dt: number,
   options?: { overrideLogicInputs?: Record<string, number> }
 ): SimulationStepResult {
-  const components = circuit.components;
-  const wires = circuit.wires;
+  const expanded = expandCircuitHierarchy(circuit);
+  const components = expanded.flatCircuit.components;
+  const wires = expanded.flatCircuit.wires;
   const compMap = new Map<string, CircuitComponent>();
   for (const c of components) compMap.set(c.id, c);
 
@@ -190,9 +270,8 @@ export function solveCircuitStep(
   };
 
   for (const c of components) {
-    const spec = COMPONENT_CATALOG[c.type];
-    if (!spec) continue;
-    for (const p of spec.pins) {
+    const pins = getComponentPins(c);
+    for (const p of pins) {
       ensurePin(pinKey(c.id, p.id));
     }
   }
@@ -227,11 +306,11 @@ export function solveCircuitStep(
 
   for (const r of allNetRoots) findIsland(r);
   for (const c of components) {
-    const spec = COMPONENT_CATALOG[c.type];
-    if (!spec || spec.pins.length < 2) continue;
-    const firstNet = find(pinKey(c.id, spec.pins[0].id));
-    for (let i = 1; i < spec.pins.length; i++) {
-      uniteIsland(firstNet, find(pinKey(c.id, spec.pins[i].id)));
+    const pins = getComponentPins(c);
+    if (pins.length < 2) continue;
+    const firstNet = find(pinKey(c.id, pins[0].id));
+    for (let i = 1; i < pins.length; i++) {
+      uniteIsland(firstNet, find(pinKey(c.id, pins[i].id)));
     }
   }
 
@@ -240,14 +319,13 @@ export function solveCircuitStep(
   const islandsWithImplicitRef = new Set<string>();
 
   for (const c of components) {
-    const spec = COMPONENT_CATALOG[c.type];
-    if (!spec) continue;
+    const pins = getComponentPins(c);
     if (c.type === 'GROUND') {
       const net = find(pinKey(c.id, 'gnd'));
       groundNetRoots.add(net);
       islandsWithGround.add(findIsland(net));
-    } else if (IMPLICIT_REF_TYPES.has(c.type) && spec.pins.length > 0) {
-      const net = find(pinKey(c.id, spec.pins[0].id));
+    } else if (IMPLICIT_REF_TYPES.has(c.type) && pins.length > 0) {
+      const net = find(pinKey(c.id, pins[0].id));
       islandsWithImplicitRef.add(findIsland(net));
     }
   }
@@ -263,9 +341,14 @@ export function solveCircuitStep(
 
   if (islandsNeedingFallback.size > 0) {
     const handledIslands = new Set<string>();
-    // Prefer negative pin of DC_SOURCE / AC_SOURCE / CURRENT_SOURCE
+    // Prefer negative pin of DC_SOURCE / AC_SOURCE / INF_SOURCE / CURRENT_SOURCE
     for (const c of components) {
-      if (c.type === 'DC_SOURCE' || c.type === 'AC_SOURCE' || c.type === 'CURRENT_SOURCE') {
+      if (
+        c.type === 'DC_SOURCE' ||
+        c.type === 'AC_SOURCE' ||
+        c.type === 'INF_SOURCE' ||
+        c.type === 'CURRENT_SOURCE'
+      ) {
         const net = find(pinKey(c.id, 'neg'));
         const isl = findIsland(net);
         if (islandsNeedingFallback.has(isl) && !handledIslands.has(isl)) {
@@ -317,13 +400,17 @@ export function solveCircuitStep(
     connectedPins.add(pinKey(w.to.componentId, w.to.pinId));
   }
 
-  // Update LOGIC_IN & CLOCK first
+  // Update LOGIC_IN, top-level IC_PORT_IN & CLOCK first
   const clockStates = new Map<string, boolean>();
   for (const c of components) {
     if (c.type === 'LOGIC_IN') {
       const override = options?.overrideLogicInputs?.[c.id];
       const val = override !== undefined ? (override ? 1 : 0) : Number(c.props.state) ? 1 : 0;
       logicDriveOut.set(pinKey(c.id, 'out'), val ? 5 : 0);
+    } else if (c.type === 'IC_PORT_IN' && !c.props.__packagedPort) {
+      const override = options?.overrideLogicInputs?.[c.id];
+      const val = override !== undefined ? (override ? 1 : 0) : Number(c.props.state) ? 1 : 0;
+      logicDriveOut.set(pinKey(c.id, 'io'), val ? 5 : 0);
     } else if (c.type === 'CLOCK') {
       const freq = Math.max(0.1, Number(c.props.frequency ?? 1));
       const phase = (timeNext * freq) % 1;
@@ -338,9 +425,7 @@ export function solveCircuitStep(
   const seedNetLogicFromVoltages = () => {
     netLogicCache.clear();
     for (const c of components) {
-      const spec = COMPONENT_CATALOG[c.type];
-      if (!spec) continue;
-      for (const p of spec.pins) {
+      for (const p of getComponentPins(c)) {
         const n = getNode(c.id, p.id);
         if (n === 0) continue;
         const vPrev = simState.lastNodeVoltages[pinKey(c.id, p.id)] ?? 0;
@@ -364,8 +449,8 @@ export function solveCircuitStep(
     return netLogicCache.get(n) === 1 ? 1 : 0;
   };
 
-  // Combinational propagation (up to 16 passes for ripple-carry / multi-stage logic)
-  for (let pass = 0; pass < 16; pass++) {
+  // Combinational propagation (up to 24 passes for multi-stage / nested IC logic)
+  for (let pass = 0; pass < 24; pass++) {
     let changed = false;
 
     const updateOutputPin = (cid: string, pid: string, bit: 0 | 1) => {
@@ -380,7 +465,7 @@ export function solveCircuitStep(
     // Recompute netLogicCache from all active logic outputs + analog high nodes
     netLogicCache.clear();
     for (const c of components) {
-      if (c.type === 'DC_SOURCE') {
+      if (c.type === 'DC_SOURCE' || c.type === 'INF_SOURCE') {
         const v = Number(c.props.voltage ?? 5);
         if (v >= 2.5) {
           const nPos = getNode(c.id, 'pos');
@@ -422,6 +507,11 @@ export function solveCircuitStep(
         const a = readLogicPin(c.id, 'a');
         const b = readLogicPin(c.id, 'b');
         updateOutputPin(c.id, 'y', a ^ b ? 0 : 1);
+      } else if (c.type === 'MUX_2_1') {
+        const d0 = readLogicPin(c.id, 'd0');
+        const d1 = readLogicPin(c.id, 'd1');
+        const sel = readLogicPin(c.id, 'sel');
+        updateOutputPin(c.id, 'y', sel ? d1 : d0);
       } else if (c.type === 'HALF_ADDER') {
         const a = readLogicPin(c.id, 'a');
         const b = readLogicPin(c.id, 'b');
@@ -434,17 +524,29 @@ export function solveCircuitStep(
         const sum = a + b + cin;
         updateOutputPin(c.id, 's', (sum & 1) as 0 | 1);
         updateOutputPin(c.id, 'cout', sum >= 2 ? 1 : 0);
-      } else if (c.type === 'D_FF') {
+      } else if (c.type === 'D_FF' || c.type === 'JK_FF') {
         const q = simState.flipFlopStates[c.id] ? 1 : 0;
         updateOutputPin(c.id, 'q', q);
         updateOutputPin(c.id, 'qn', q ? 0 : 1);
+      } else if (c.type === 'COUNTER_4BIT') {
+        const rst = readLogicPin(c.id, 'rst');
+        const val = rst ? 0 : (simState.counterValues[c.id] ?? 0) & 0x0f;
+        updateOutputPin(c.id, 'q3', (val >> 3) & 1 ? 1 : 0);
+        updateOutputPin(c.id, 'q2', (val >> 2) & 1 ? 1 : 0);
+        updateOutputPin(c.id, 'q1', (val >> 1) & 1 ? 1 : 0);
+        updateOutputPin(c.id, 'q0', val & 1 ? 1 : 0);
+      } else if (c.type === 'CUSTOM_TRUTH_8' || c.type === 'CUSTOM_TRUTH_16') {
+        const outputs = evaluateTruthChipOutputs(c, (pid) => readLogicPin(c.id, pid));
+        for (const [outPinId, bit] of Object.entries(outputs)) {
+          updateOutputPin(c.id, outPinId, bit);
+        }
       }
     }
 
     if (!changed) break;
   }
 
-  // Handle D_FF rising edge detection when time advances (dt > 0)
+  // Handle sequential rising edge detection (D_FF, JK_FF, COUNTER_4BIT) when time advances (dt > 0)
   if (dt > 0) {
     for (const c of components) {
       if (c.type === 'D_FF') {
@@ -457,11 +559,43 @@ export function solveCircuitStep(
           logicDriveOut.set(pinKey(c.id, 'qn'), dVal ? 0 : 5);
         }
         simState.prevClockHigh[c.id] = clkHigh;
+      } else if (c.type === 'JK_FF') {
+        const clkHigh = readLogicPin(c.id, 'clk') === 1;
+        const wasHigh = Boolean(simState.prevClockHigh[c.id]);
+        if (!wasHigh && clkHigh) {
+          const j = readLogicPin(c.id, 'j');
+          const k = readLogicPin(c.id, 'k');
+          const prevQ = simState.flipFlopStates[c.id] ? 1 : 0;
+          let nextQ = prevQ;
+          if (j === 1 && k === 1) nextQ = prevQ ? 0 : 1;
+          else if (j === 1 && k === 0) nextQ = 1;
+          else if (j === 0 && k === 1) nextQ = 0;
+          simState.flipFlopStates[c.id] = nextQ;
+          logicDriveOut.set(pinKey(c.id, 'q'), nextQ ? 5 : 0);
+          logicDriveOut.set(pinKey(c.id, 'qn'), nextQ ? 0 : 5);
+        }
+        simState.prevClockHigh[c.id] = clkHigh;
+      } else if (c.type === 'COUNTER_4BIT') {
+        const rst = readLogicPin(c.id, 'rst') === 1;
+        const clkHigh = readLogicPin(c.id, 'clk') === 1;
+        const wasHigh = Boolean(simState.prevClockHigh[c.id]);
+        let val = (simState.counterValues[c.id] ?? 0) & 0x0f;
+        if (rst) {
+          val = 0;
+        } else if (!wasHigh && clkHigh) {
+          val = (val + 1) & 0x0f;
+        }
+        simState.counterValues[c.id] = val;
+        simState.prevClockHigh[c.id] = clkHigh;
+        logicDriveOut.set(pinKey(c.id, 'q3'), (val >> 3) & 1 ? 5 : 0);
+        logicDriveOut.set(pinKey(c.id, 'q2'), (val >> 2) & 1 ? 5 : 0);
+        logicDriveOut.set(pinKey(c.id, 'q1'), (val >> 1) & 1 ? 5 : 0);
+        logicDriveOut.set(pinKey(c.id, 'q0'), val & 1 ? 5 : 0);
       }
     }
   }
 
-  // 4. Identify Voltage Sources (MNA branch currents) & Nonlinear Components
+  // 4. Identify Voltage Sources, Transformers (MNA branch currents) & Nonlinear Components
   interface VoltageBranch {
     componentId: string;
     nPos: number;
@@ -471,7 +605,18 @@ export function solveCircuitStep(
     branchIdx: number; // 0-based index in extra MNA rows
   }
 
+  interface TransformerBranch {
+    componentId: string;
+    nP1: number;
+    nP2: number;
+    nS1: number;
+    nS2: number;
+    ratio: number;
+    branchIdx: number;
+  }
+
   const voltageBranches: VoltageBranch[] = [];
+  const transformerBranches: TransformerBranch[] = [];
   let hasNonlinear = false;
 
   for (const c of components) {
@@ -484,45 +629,65 @@ export function solveCircuitStep(
         rInt: 0.01,
         branchIdx: voltageBranches.length,
       });
-    } else if (c.type === 'AC_SOURCE') {
-      const amp = Number(c.props.amplitude ?? 5);
-      const freq = Number(c.props.frequency ?? 2);
-      const dcOff = Number(c.props.dcOffset ?? 0);
-      const wf = String(c.props.waveform ?? 'sine');
-      const angle = 2 * Math.PI * freq * timeNext;
-      const ac =
-        wf === 'square'
-          ? Math.sin(angle) >= 0
-            ? amp
-            : -amp
-          : amp * Math.sin(angle);
+    } else if (c.type === 'AC_SOURCE' || c.type === 'INF_SOURCE') {
+      const wf = String(c.props.waveform ?? (c.type === 'INF_SOURCE' ? 'dc' : 'sine'));
+      let vOut = 0;
+      if (c.type === 'INF_SOURCE' && wf === 'dc') {
+        vOut = Number(c.props.voltage ?? 12);
+      } else {
+        const amp =
+          c.type === 'INF_SOURCE'
+            ? Number(c.props.voltage ?? 12)
+            : Number(c.props.amplitude ?? 5);
+        const freq = Number(c.props.frequency ?? 2);
+        const dcOff = c.type === 'INF_SOURCE' ? 0 : Number(c.props.dcOffset ?? 0);
+        const angle = 2 * Math.PI * freq * timeNext;
+        const ac =
+          wf === 'square'
+            ? Math.sin(angle) >= 0
+              ? amp
+              : -amp
+            : amp * Math.sin(angle);
+        vOut = dcOff + ac;
+      }
       voltageBranches.push({
         componentId: c.id,
         nPos: getNode(c.id, 'pos'),
         nNeg: getNode(c.id, 'neg'),
-        voltage: dcOff + ac,
-        rInt: 0.01,
+        voltage: vOut,
+        rInt: c.type === 'INF_SOURCE' ? 1e-5 : 0.01,
         branchIdx: voltageBranches.length,
+      });
+    } else if (c.type === 'TRANSFORMER') {
+      const ratio = Math.max(0.05, Number(c.props.ratio ?? 2.0));
+      transformerBranches.push({
+        componentId: c.id,
+        nP1: getNode(c.id, 'p1'),
+        nP2: getNode(c.id, 'p2'),
+        nS1: getNode(c.id, 's1'),
+        nS2: getNode(c.id, 's2'),
+        ratio,
+        branchIdx: transformerBranches.length,
       });
     } else if (
       c.type === 'DIODE' ||
+      c.type === 'ZENER_DIODE' ||
       c.type === 'LED' ||
       c.type === 'BJT_NPN' ||
+      c.type === 'NMOS' ||
       c.type === 'OPAMP'
     ) {
       hasNonlinear = true;
     }
   }
 
-  const dim = numNodes + voltageBranches.length;
+  const dim = numNodes + voltageBranches.length + transformerBranches.length;
   const maxNrIters = hasNonlinear ? 45 : 1;
 
   // Initial voltage guess for NR
   const prevGuess = new Array<number>(dim).fill(0);
   for (const c of components) {
-    const spec = COMPONENT_CATALOG[c.type];
-    if (!spec) continue;
-    for (const p of spec.pins) {
+    for (const p of getComponentPins(c)) {
       const n = getNode(c.id, p.id);
       if (n > 0) {
         prevGuess[n - 1] = simState.lastNodeVoltages[pinKey(c.id, p.id)] ?? 0;
@@ -532,8 +697,11 @@ export function solveCircuitStep(
 
   // Track nonlinear state across NR iterations for pnjlim
   const diodePrevVd = new Map<string, number>();
+  const zenerPrevVd = new Map<string, number>();
   const bjtPrevVbe = new Map<string, number>();
   const bjtPrevVbc = new Map<string, number>();
+  const nmosPrevVgs = new Map<string, number>();
+  const nmosPrevVds = new Map<string, number>();
   const opampPrevVd = new Map<string, number>();
 
   for (const c of components) {
@@ -543,6 +711,13 @@ export function solveCircuitStep(
       const vA = nA > 0 ? prevGuess[nA - 1] : 0;
       const vK = nK > 0 ? prevGuess[nK - 1] : 0;
       diodePrevVd.set(c.id, Math.min(2.5, Math.max(-5, vA - vK)));
+    } else if (c.type === 'ZENER_DIODE') {
+      const nA = getNode(c.id, 'a');
+      const nK = getNode(c.id, 'k');
+      const vA = nA > 0 ? prevGuess[nA - 1] : 0;
+      const vK = nK > 0 ? prevGuess[nK - 1] : 0;
+      const vz = Math.max(1.2, Number(c.props.vz ?? 5.1));
+      zenerPrevVd.set(c.id, Math.min(2.5, Math.max(-vz - 1, vA - vK)));
     } else if (c.type === 'BJT_NPN') {
       const nB = getNode(c.id, 'b');
       const nC = getNode(c.id, 'c');
@@ -552,6 +727,15 @@ export function solveCircuitStep(
       const vE = nE > 0 ? prevGuess[nE - 1] : 0;
       bjtPrevVbe.set(c.id, Math.min(1.0, Math.max(-5, vB - vE)));
       bjtPrevVbc.set(c.id, Math.min(1.0, Math.max(-15, vB - vC)));
+    } else if (c.type === 'NMOS') {
+      const nG = getNode(c.id, 'g');
+      const nD = getNode(c.id, 'd');
+      const nS = getNode(c.id, 's');
+      const vG = nG > 0 ? prevGuess[nG - 1] : 0;
+      const vD = nD > 0 ? prevGuess[nD - 1] : 0;
+      const vS = nS > 0 ? prevGuess[nS - 1] : 0;
+      nmosPrevVgs.set(c.id, Math.min(15, Math.max(-10, vG - vS)));
+      nmosPrevVds.set(c.id, Math.min(30, Math.max(-10, vD - vS)));
     } else if (c.type === 'OPAMP') {
       const nP = getNode(c.id, 'inp');
       const nM = getNode(c.id, 'inm');
@@ -604,12 +788,57 @@ export function solveCircuitStep(
       b[row] += vs.voltage;
     }
 
+    // Stamp MNA Ideal Coupled Transformers: (Vs1 - Vs2) - ratio * (Vp1 - Vp2) - rSec * x = 0
+    for (const tb of transformerBranches) {
+      const row = numNodes + voltageBranches.length + tb.branchIdx;
+      if (tb.nS1 > 0) {
+        A[tb.nS1 - 1][row] += 1;
+        A[row][tb.nS1 - 1] += 1;
+      }
+      if (tb.nS2 > 0) {
+        A[tb.nS2 - 1][row] -= 1;
+        A[row][tb.nS2 - 1] -= 1;
+      }
+      if (tb.nP1 > 0) {
+        A[tb.nP1 - 1][row] -= tb.ratio;
+        A[row][tb.nP1 - 1] -= tb.ratio;
+      }
+      if (tb.nP2 > 0) {
+        A[tb.nP2 - 1][row] += tb.ratio;
+        A[row][tb.nP2 - 1] += tb.ratio;
+      }
+      A[row][row] -= 0.01; // Tiny secondary coil resistance
+      // Safety galvanic isolation bleed to prevent singular common-mode float
+      stampG(tb.nP2, 0, 1e-9);
+      stampG(tb.nS2, 0, 1e-9);
+    }
+
     // Stamp components
     for (const c of components) {
       switch (c.type) {
         case 'RESISTOR': {
           const r = Math.max(0.01, Number(c.props.resistance ?? 220));
           stampG(getNode(c.id, 'a'), getNode(c.id, 'b'), 1 / r);
+          break;
+        }
+        case 'INF_RESISTOR': {
+          if (c.props.idealInfinite === false) {
+            const r = Math.max(1e-6, Number(c.props.resistance ?? 1e12));
+            stampG(getNode(c.id, 'p1'), getNode(c.id, 'p2'), 1 / r);
+          }
+          break;
+        }
+        case 'LAMP': {
+          const vRated = Math.max(0.5, Number(c.props.ratedVoltage ?? 5));
+          const pRated = Math.max(0.05, Number(c.props.ratedPower ?? 1.5));
+          const rLamp = Math.max(0.5, (vRated * vRated) / pRated);
+          stampG(getNode(c.id, 'p1'), getNode(c.id, 'p2'), 1 / rLamp);
+          break;
+        }
+        case 'FUSE': {
+          const blown = Boolean(c.props.blown) || Boolean(simState.blownFuses[c.id]);
+          const gFuse = blown ? 1e-9 : 1 / 0.02;
+          stampG(getNode(c.id, 'p1'), getNode(c.id, 'p2'), gFuse);
           break;
         }
         case 'POTENTIOMETER': {
@@ -707,6 +936,42 @@ export function solveCircuitStep(
           const iEq = i - g * vd;
           stampG(nA, nK, g);
           stampI(nA, nK, iEq);
+          break;
+        }
+        case 'ZENER_DIODE': {
+          const nA = getNode(c.id, 'a');
+          const nK = getNode(c.id, 'k');
+          const vz = Math.max(1.2, Number(c.props.vz ?? 5.1));
+          const vd = zenerPrevVd.get(c.id) ?? 0;
+          const { i, g } = evalZener(vd, vz);
+          const iEq = i - g * vd;
+          stampG(nA, nK, g + 1e-12);
+          stampI(nA, nK, iEq);
+          break;
+        }
+        case 'NMOS': {
+          const nG = getNode(c.id, 'g');
+          const nD = getNode(c.id, 'd');
+          const nS = getNode(c.id, 's');
+          const vth = Number(c.props.vth ?? 2.0);
+          const kp = Math.max(1e-4, Number(c.props.kp ?? 0.08));
+          const vgs0 = nmosPrevVgs.get(c.id) ?? 0;
+          const vds0 = nmosPrevVds.get(c.id) ?? 0;
+          const { id, gm, gds } = evalNmos(vgs0, vds0, vth, kp);
+          const iEq = id - gm * vgs0 - gds * vds0;
+
+          stampG(nG, nS, 1e-9);
+          stampG(nG, 0, 1e-9);
+          stampG(nD, nS, gds);
+          if (nD > 0) {
+            if (nG > 0) A[nD - 1][nG - 1] += gm;
+            if (nS > 0) A[nD - 1][nS - 1] -= gm;
+          }
+          if (nS > 0) {
+            if (nG > 0) A[nS - 1][nG - 1] -= gm;
+            if (nS > 0) A[nS - 1][nS - 1] += gm;
+          }
+          stampI(nD, nS, iEq);
           break;
         }
         case 'BJT_NPN': {
@@ -869,9 +1134,10 @@ export function solveCircuitStep(
           }
           break;
         }
-        case 'D_FF': {
-          stampG(getNode(c.id, 'd'), 0, 1e-5);
-          stampG(getNode(c.id, 'clk'), 0, 1e-5);
+        case 'D_FF':
+        case 'JK_FF': {
+          const inPins = c.type === 'JK_FF' ? ['j', 'clk', 'k'] : ['d', 'clk'];
+          for (const pid of inPins) stampG(getNode(c.id, pid), 0, 1e-5);
           for (const pid of ['q', 'qn']) {
             const vOut = logicDriveOut.get(pinKey(c.id, pid)) ?? 0;
             const nOut = getNode(c.id, pid);
@@ -879,6 +1145,58 @@ export function solveCircuitStep(
             stampG(nOut, 0, gOut);
             stampI(0, nOut, gOut * vOut);
           }
+          break;
+        }
+        case 'MUX_2_1': {
+          for (const pid of ['d0', 'd1', 'sel']) stampG(getNode(c.id, pid), 0, 1e-5);
+          const vY = logicDriveOut.get(pinKey(c.id, 'y')) ?? 0;
+          const nY = getNode(c.id, 'y');
+          const gOut = 1 / 25;
+          stampG(nY, 0, gOut);
+          stampI(0, nY, gOut * vY);
+          break;
+        }
+        case 'COUNTER_4BIT': {
+          for (const pid of ['clk', 'rst']) stampG(getNode(c.id, pid), 0, 1e-5);
+          for (const pid of ['q3', 'q2', 'q1', 'q0']) {
+            const vOut = logicDriveOut.get(pinKey(c.id, pid)) ?? 0;
+            const nOut = getNode(c.id, pid);
+            const gOut = 1 / 25;
+            stampG(nOut, 0, gOut);
+            stampI(0, nOut, gOut * vOut);
+          }
+          break;
+        }
+        case 'CUSTOM_TRUTH_8':
+        case 'CUSTOM_TRUTH_16': {
+          const pins = getComponentPins(c);
+          for (const p of pins) {
+            if (p.role === 'logic_out') {
+              const vOut = logicDriveOut.get(pinKey(c.id, p.id)) ?? 0;
+              const nOut = getNode(c.id, p.id);
+              const gOut = 1 / 25;
+              stampG(nOut, 0, gOut);
+              stampI(0, nOut, gOut * vOut);
+            } else {
+              stampG(getNode(c.id, p.id), 0, 1e-5);
+            }
+          }
+          break;
+        }
+        case 'IC_PORT_IN': {
+          if (c.props.__packagedPort) {
+            stampG(getNode(c.id, 'io'), 0, 1e-9);
+          } else {
+            const vDrive = logicDriveOut.get(pinKey(c.id, 'io')) ?? 0;
+            const nOut = getNode(c.id, 'io');
+            const gOut = 1 / 10;
+            stampG(nOut, 0, gOut);
+            stampI(0, nOut, gOut * vDrive);
+          }
+          break;
+        }
+        case 'IC_PORT_OUT': {
+          stampG(getNode(c.id, 'io'), 0, c.props.__packagedPort ? 1e-9 : 1e-6);
           break;
         }
       }
@@ -906,6 +1224,22 @@ export function solveCircuitStep(
         const vLim = spicePnjLim(vNewRaw, vOld, vt, vCrit);
         maxDelta = Math.max(maxDelta, Math.abs(vNewRaw - vOld));
         diodePrevVd.set(c.id, vLim);
+      } else if (c.type === 'ZENER_DIODE') {
+        const vNewRaw = nodeV(getNode(c.id, 'a')) - nodeV(getNode(c.id, 'k'));
+        const vOld = zenerPrevVd.get(c.id) ?? 0;
+        const vz = Math.max(1.2, Number(c.props.vz ?? 5.1));
+        const vShift = Math.max(0.5, vz - 0.595);
+        const vt = 0.02585 * 1.1;
+        const vCrit = vt * Math.log(vt / (1e-12 * Math.SQRT2));
+        let vLim = vNewRaw;
+        if (vNewRaw > 0.3) {
+          vLim = spicePnjLim(vNewRaw, vOld, vt, vCrit);
+        } else if (vNewRaw < -vShift + 0.3) {
+          const uLim = spicePnjLim(-vNewRaw - vShift, -vOld - vShift, vt, vCrit);
+          vLim = -(uLim + vShift);
+        }
+        maxDelta = Math.max(maxDelta, Math.abs(vNewRaw - vOld));
+        zenerPrevVd.set(c.id, vLim);
       } else if (c.type === 'BJT_NPN') {
         const vB = nodeV(getNode(c.id, 'b'));
         const vC = nodeV(getNode(c.id, 'c'));
@@ -925,6 +1259,25 @@ export function solveCircuitStep(
         );
         bjtPrevVbe.set(c.id, vbeLim);
         bjtPrevVbc.set(c.id, vbcLim);
+      } else if (c.type === 'NMOS') {
+        const vG = nodeV(getNode(c.id, 'g'));
+        const vD = nodeV(getNode(c.id, 'd'));
+        const vS = nodeV(getNode(c.id, 's'));
+        const vgsRaw = vG - vS;
+        const vdsRaw = vD - vS;
+        const vgsOld = nmosPrevVgs.get(c.id) ?? 0;
+        const vdsOld = nmosPrevVds.get(c.id) ?? 0;
+        const clampStep = (raw: number, old: number) =>
+          Math.abs(raw - old) > 1.5 ? old + 1.5 * Math.sign(raw - old) : raw;
+        const vgsLim = clampStep(vgsRaw, vgsOld);
+        const vdsLim = clampStep(vdsRaw, vdsOld);
+        maxDelta = Math.max(
+          maxDelta,
+          Math.abs(vgsRaw - vgsOld),
+          Math.abs(vdsRaw - vdsOld)
+        );
+        nmosPrevVgs.set(c.id, vgsLim);
+        nmosPrevVds.set(c.id, vdsLim);
       } else if (c.type === 'OPAMP') {
         const vdRaw = nodeV(getNode(c.id, 'inp')) - nodeV(getNode(c.id, 'inm'));
         const vdOld = opampPrevVd.get(c.id) ?? 0;
@@ -948,9 +1301,7 @@ export function solveCircuitStep(
 
   const nodeVoltagesByPinKey: Record<string, number> = {};
   for (const c of components) {
-    const spec = COMPONENT_CATALOG[c.type];
-    if (!spec) continue;
-    for (const p of spec.pins) {
+    for (const p of getComponentPins(c)) {
       const pk = pinKey(c.id, p.id);
       const v = getV(c.id, p.id);
       nodeVoltagesByPinKey[pk] = v;
@@ -988,6 +1339,8 @@ export function solveCircuitStep(
 
   const branchByComp = new Map<string, VoltageBranch>();
   for (const vb of voltageBranches) branchByComp.set(vb.componentId, vb);
+  const transformerByComp = new Map<string, TransformerBranch>();
+  for (const tb of transformerBranches) transformerByComp.set(tb.componentId, tb);
 
   const telemetryById: Record<string, ComponentTelemetry> = {};
   const warnings: string[] = [];
@@ -995,29 +1348,27 @@ export function solveCircuitStep(
   for (const c of components) {
     const spec = COMPONENT_CATALOG[c.type];
     if (!spec) continue;
+    const compPins = getComponentPins(c);
     const pinVoltages: Record<string, number> = {};
-    for (const p of spec.pins) {
+    for (const p of compPins) {
       pinVoltages[p.id] = getV(c.id, p.id);
     }
 
     let voltageDrop = 0;
     let current = 0;
     let power = 0;
-    const maxPower = Number(c.props.maxPower ?? spec.maxPower);
+    const maxPower =
+      c.type === 'INF_SOURCE' || c.type === 'INF_RESISTOR'
+        ? Number.POSITIVE_INFINITY
+        : Number(c.props.maxPower ?? spec.maxPower);
     let logicState: number | undefined;
     let extraInfo: string | undefined;
 
     switch (c.type) {
       case 'DC_SOURCE':
-      case 'AC_SOURCE': {
+      case 'AC_SOURCE':
+      case 'INF_SOURCE': {
         const vb = branchByComp.get(c.id)!;
-        // In MNA: branch current I_vs leaves pos internally -> enters neg internally
-        // Wait: in A[pos][row] += 1, current leaving pos node into source = +I_vs, wait:
-        // KCL at node pos: sum(other currents leaving pos) + I_vs = 0 => I_vs is current flowing from pos -> source -> neg.
-        // Wait: let's check sign! At pos node, A[pos][row] = +1 means +1 * I_branch is on LHS of KCL(leaving pos) = sum(I_injected).
-        // Let's verify with simple DC source (V=5V) connected to R=100 from pos -> gnd:
-        // Row pos: G*V_pos + I_branch = 0 => I_branch = -V_pos / R = -0.05 A!
-        // Thus current delivered OUT of pos terminal into external circuit is -I_branch!
         const iBranch = solution[numNodes + vb.branchIdx] ?? 0;
         const iDelivered = -iBranch;
         voltageDrop = pinVoltages.pos - pinVoltages.neg;
@@ -1025,9 +1376,75 @@ export function solveCircuitStep(
         power = Math.abs(voltageDrop * current);
         addPinCurrent(c.id, 'pos', -iDelivered);
         addPinCurrent(c.id, 'neg', iDelivered);
-        if (Math.abs(iDelivered) > 8) {
+        if (c.type === 'INF_SOURCE') {
+          extraInfo = '理想无穷大电源 (无功率/过载上限)';
+        } else if (Math.abs(iDelivered) > 8) {
           extraInfo = '疑似短路大电流告警';
         }
+        break;
+      }
+      case 'INF_RESISTOR': {
+        const isIdeal = c.props.idealInfinite !== false;
+        voltageDrop = pinVoltages.p1 - pinVoltages.p2;
+        if (isIdeal) {
+          current = 0;
+          power = 0;
+          extraInfo = '理想无穷大 R=∞ (I = 0 A)';
+        } else {
+          const r = Math.max(1e-6, Number(c.props.resistance ?? 1e12));
+          current = voltageDrop / r;
+          power = Math.abs(voltageDrop * current);
+          extraInfo = `高阻模式 (${r.toExponential(1)} Ω)`;
+        }
+        addPinCurrent(c.id, 'p1', current);
+        addPinCurrent(c.id, 'p2', -current);
+        break;
+      }
+      case 'LAMP': {
+        const vRated = Math.max(0.5, Number(c.props.ratedVoltage ?? 5));
+        const pRated = Math.max(0.05, Number(c.props.ratedPower ?? 1.5));
+        const rLamp = Math.max(0.5, (vRated * vRated) / pRated);
+        voltageDrop = pinVoltages.p1 - pinVoltages.p2;
+        current = voltageDrop / rLamp;
+        power = Math.abs(voltageDrop * current);
+        addPinCurrent(c.id, 'p1', current);
+        addPinCurrent(c.id, 'p2', -current);
+        const pct = Math.min(150, (power / pRated) * 100);
+        extraInfo = pct > 2 ? `亮度 ${pct.toFixed(0)}%` : '熄灭';
+        break;
+      }
+      case 'FUSE': {
+        const tripCurrent = Math.max(0.01, Number(c.props.tripCurrent ?? 0.5));
+        const alreadyBlown = Boolean(c.props.blown) || Boolean(simState.blownFuses[c.id]);
+        voltageDrop = pinVoltages.p1 - pinVoltages.p2;
+        current = voltageDrop * (alreadyBlown ? 1e-9 : 1 / 0.02);
+        if (!alreadyBlown && dt > 0 && Math.abs(current) > tripCurrent) {
+          simState.blownFuses[c.id] = true;
+        }
+        const blownNow = Boolean(c.props.blown) || Boolean(simState.blownFuses[c.id]);
+        power = Math.abs(voltageDrop * current);
+        addPinCurrent(c.id, 'p1', current);
+        addPinCurrent(c.id, 'p2', -current);
+        extraInfo = blownNow
+          ? `已熔断！(超 ${tripCurrent}A，点击复位)`
+          : `导通正常 (熔断阈值 ${tripCurrent}A)`;
+        break;
+      }
+      case 'TRANSFORMER': {
+        const tb = transformerByComp.get(c.id)!;
+        const x = solution[numNodes + voltageBranches.length + tb.branchIdx] ?? 0;
+        const iSecOut = -x;
+        const iPriIn = -tb.ratio * x;
+        const vP = pinVoltages.p1 - pinVoltages.p2;
+        const vS = pinVoltages.s1 - pinVoltages.s2;
+        voltageDrop = vS;
+        current = iSecOut;
+        power = Math.max(Math.abs(vS * iSecOut), Math.abs(vP * iPriIn));
+        addPinCurrent(c.id, 'p1', iPriIn);
+        addPinCurrent(c.id, 'p2', -iPriIn);
+        addPinCurrent(c.id, 's1', -iSecOut);
+        addPinCurrent(c.id, 's2', iSecOut);
+        extraInfo = `变比 N=${tb.ratio.toFixed(2)} (Vp=${vP.toFixed(2)}V → Vs=${vS.toFixed(2)}V)`;
         break;
       }
       case 'CURRENT_SOURCE': {
@@ -1155,6 +1572,43 @@ export function solveCircuitStep(
         }
         break;
       }
+      case 'ZENER_DIODE': {
+        const vz = Math.max(1.2, Number(c.props.vz ?? 5.1));
+        voltageDrop = pinVoltages.a - pinVoltages.k;
+        current = evalZener(voltageDrop, vz).i;
+        power = Math.abs(voltageDrop * current);
+        addPinCurrent(c.id, 'a', current);
+        addPinCurrent(c.id, 'k', -current);
+        if (current > 1e-4) {
+          extraInfo = '正向导通';
+        } else if (current < -1e-4) {
+          extraInfo = `反向齐纳稳压 (Vz≈${vz.toFixed(1)}V)`;
+        } else {
+          extraInfo = '反向截止区';
+        }
+        break;
+      }
+      case 'NMOS': {
+        const vth = Number(c.props.vth ?? 2.0);
+        const kp = Math.max(1e-4, Number(c.props.kp ?? 0.08));
+        const vgs = pinVoltages.g - pinVoltages.s;
+        const vds = pinVoltages.d - pinVoltages.s;
+        const { id } = evalNmos(vgs, vds, vth, kp);
+        voltageDrop = vds;
+        current = id;
+        power = Math.abs(vds * id);
+        addPinCurrent(c.id, 'g', 0);
+        addPinCurrent(c.id, 'd', id);
+        addPinCurrent(c.id, 's', -id);
+        if (vgs <= vth) {
+          extraInfo = `截止区 (Vgs=${vgs.toFixed(2)}V ≤ Vth=${vth.toFixed(1)}V)`;
+        } else if (Math.abs(vds) < vgs - vth) {
+          extraInfo = `线性可变电阻区 (Id=${(id * 1000).toFixed(1)}mA)`;
+        } else {
+          extraInfo = `恒流饱和区 (Id=${(id * 1000).toFixed(1)}mA)`;
+        }
+        break;
+      }
       case 'BJT_NPN': {
         const betaF = Math.max(10, Number(c.props.beta ?? 100));
         const betaR = 2;
@@ -1231,6 +1685,37 @@ export function solveCircuitStep(
         extraInfo = logicState ? '高电平 (1)' : '低电平 (0)';
         break;
       }
+      case 'IC_PORT_IN': {
+        const vPin = pinVoltages.io;
+        if (c.props.__packagedPort) {
+          voltageDrop = vPin;
+          current = 0;
+          power = 0;
+          logicState = vPin >= 2.5 ? 1 : 0;
+          addPinCurrent(c.id, 'io', 0);
+          extraInfo = `封装内部端口IN (${logicState ? '1' : '0'})`;
+        } else {
+          const vDrive = logicDriveOut.get(pinKey(c.id, 'io')) ?? 0;
+          const iOut = (vDrive - vPin) / 10;
+          voltageDrop = vPin;
+          current = iOut;
+          power = Math.abs(vPin * iOut);
+          logicState = vPin >= 2.5 ? 1 : 0;
+          addPinCurrent(c.id, 'io', -iOut);
+          extraInfo = `IC输入端口 (${logicState ? '高 1' : '低 0'})`;
+        }
+        break;
+      }
+      case 'IC_PORT_OUT': {
+        const vIn = pinVoltages.io;
+        voltageDrop = vIn;
+        current = vIn * (c.props.__packagedPort ? 1e-9 : 1e-6);
+        power = Math.abs(vIn * current);
+        logicState = vIn >= 2.5 ? 1 : 0;
+        addPinCurrent(c.id, 'io', current);
+        extraInfo = `IC输出端口 (${logicState ? '高 1' : '低 0'})`;
+        break;
+      }
       case 'HEX_DISPLAY': {
         const b3 = pinVoltages.d3 >= 2.5 ? 8 : 0;
         const b2 = pinVoltages.d2 >= 2.5 ? 4 : 0;
@@ -1245,12 +1730,12 @@ export function solveCircuitStep(
         break;
       }
       default: {
-        // Logic gates & FFs
+        // Logic gates, FFs, Counters & Truth Table LUT Chips
         let lastOutState = 0;
-        for (const p of spec.pins) {
+        for (const p of compPins) {
           if (p.role === 'logic_out') {
             const vDrive = logicDriveOut.get(pinKey(c.id, p.id)) ?? 0;
-            const vPin = pinVoltages[p.id];
+            const vPin = pinVoltages[p.id] ?? 0;
             const iOut = (vDrive - vPin) / 25;
             addPinCurrent(c.id, p.id, -iOut);
             current += Math.abs(iOut);
@@ -1258,21 +1743,38 @@ export function solveCircuitStep(
             lastOutState = vPin >= 2.5 ? 1 : 0;
             voltageDrop = vPin;
           } else {
-            const iIn = pinVoltages[p.id] * 1e-5;
+            const iIn = (pinVoltages[p.id] ?? 0) * 1e-5;
             addPinCurrent(c.id, p.id, iIn);
           }
         }
-        logicState = lastOutState;
-        extraInfo = `输出 ${lastOutState ? '1 (5V)' : '0 (0V)'}`;
+        if (c.type === 'COUNTER_4BIT') {
+          const cnt = (simState.counterValues[c.id] ?? 0) & 0x0f;
+          logicState = cnt;
+          extraInfo = `计数值 ${cnt} (0b${cnt.toString(2).padStart(4, '0')})`;
+        } else if (c.type === 'CUSTOM_TRUTH_8' || c.type === 'CUSTOM_TRUTH_16') {
+          const cfg = parseTruthChipConfig(c);
+          const outBits = compPins
+            .filter((p) => p.role === 'logic_out')
+            .map((p) => ((pinVoltages[p.id] ?? 0) >= 2.5 ? '1' : '0'))
+            .join('');
+          logicState = lastOutState;
+          extraInfo = `${cfg.chipName} · OUT=${outBits || '无'}`;
+        } else {
+          logicState = lastOutState;
+          extraInfo = `输出 ${lastOutState ? '1 (5V)' : '0 (0V)'}`;
+        }
         break;
       }
     }
 
-    const loadRatio = maxPower > 0 ? power / maxPower : 0;
+    const loadRatio = Number.isFinite(maxPower) && maxPower > 0 ? power / maxPower : 0;
     const overloaded =
-      (loadRatio > 1.0 &&
+      (Number.isFinite(maxPower) &&
+        loadRatio > 1.0 &&
         c.type !== 'DC_SOURCE' &&
         c.type !== 'AC_SOURCE' &&
+        c.type !== 'INF_SOURCE' &&
+        c.type !== 'INF_RESISTOR' &&
         c.type !== 'GROUND' &&
         c.type !== 'VOLTMETER' &&
         c.type !== 'AMMETER') ||
@@ -1294,6 +1796,53 @@ export function solveCircuitStep(
       logicState,
       extraInfo,
     };
+  }
+
+  // Synthesize top-level CUSTOM_IC telemetry from flattened child telemetry & port anchors
+  if (expanded.hasExpanded) {
+    for (const topIc of circuit.components) {
+      if (topIc.type !== 'CUSTOM_IC') continue;
+      const payload = parseCustomIcPayload(topIc);
+      const pins = getComponentPins(topIc);
+      const pinVoltages: Record<string, number> = {};
+      let firstOutState = 0;
+      let sawOut = false;
+      for (const p of pins) {
+        const anchor = expanded.portAnchorMap.get(pinKey(topIc.id, p.id));
+        const v = anchor
+          ? (nodeVoltagesByPinKey[pinKey(anchor.anchorCompId, anchor.pinId)] ?? 0)
+          : 0;
+        pinVoltages[p.id] = v;
+        nodeVoltagesByPinKey[pinKey(topIc.id, p.id)] = v;
+        if (p.role === 'logic_out' && !sawOut) {
+          firstOutState = v >= 2.5 ? 1 : 0;
+          sawOut = true;
+        }
+      }
+      const childIds = expanded.childrenByIcId.get(topIc.id) ?? [];
+      let totalPower = 0;
+      let anyOverload = false;
+      for (const cid of childIds) {
+        const childTel = telemetryById[cid];
+        if (childTel) {
+          totalPower += childTel.power;
+          if (childTel.overloaded) anyOverload = true;
+        }
+      }
+      const maxPower = Number(topIc.props.maxPower ?? 10.0);
+      telemetryById[topIc.id] = {
+        componentId: topIc.id,
+        pinVoltages,
+        voltageDrop: Object.values(pinVoltages)[0] ?? 0,
+        current: 0,
+        power: totalPower,
+        maxPower,
+        loadRatio: maxPower > 0 ? totalPower / maxPower : 0,
+        overloaded: anyOverload,
+        logicState: firstOutState,
+        extraInfo: `封装芯片「${payload.name}」(${pins.length}脚)`,
+      };
+    }
   }
 
   // Fix Capacitor post-step current using Norton formula carefully?

@@ -115,4 +115,128 @@ describe('ElectroLab 3D Full-Stack REST API', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(delProj.status).toBe(200);
   });
+
+  it('supports authenticated Cloud Custom IC CRUD and rejects unauthorized/cross-user writes', async () => {
+    // 1. Unauthenticated request returns 401
+    const unauth = await request(app).get('/api/custom-ics');
+    expect(unauth.status).toBe(401);
+
+    // 2. Authenticate two distinct users
+    const regA = await request(app).post('/api/auth/register').send({
+      username: 'ic_owner_a',
+      password: 'password123',
+      displayName: '芯片作者A',
+      university: '清华大学',
+      major: '集成电路学院',
+    });
+    expect(regA.status).toBe(201);
+    const tokenA = regA.body.token as string;
+
+    const regB = await request(app).post('/api/auth/register').send({
+      username: 'ic_other_b',
+      password: 'password123',
+      displayName: '同学B',
+      university: '北京大学',
+      major: '微电子',
+    });
+    expect(regB.status).toBe(201);
+    const tokenB = regB.body.token as string;
+
+    const samplePayload = {
+      version: 1,
+      name: '我的云端反相器',
+      codeName: 'U_INV',
+      description: '单输入数字非门封装单元',
+      color: '#7c3aed',
+      pins: [
+        { pinId: 'in1', name: 'A', direction: 'in', anchorCompId: 'pin_in' },
+        { pinId: 'out1', name: 'Y', direction: 'out', anchorCompId: 'pin_out' },
+      ],
+      internalCircuit: {
+        components: [
+          {
+            id: 'pin_in',
+            type: 'IC_PORT_IN',
+            label: 'IN1',
+            pos3d: [-2, 0, 0],
+            rotationY: 0,
+            pos2d: { x: 100, y: 150 },
+            rot2d: 0,
+            props: { state: 0, portName: 'A' },
+          },
+          {
+            id: 'g1',
+            type: 'NOT',
+            label: 'U1',
+            pos3d: [0, 0, 0],
+            rotationY: 0,
+            pos2d: { x: 250, y: 150 },
+            rot2d: 0,
+            props: {},
+          },
+          {
+            id: 'pin_out',
+            type: 'IC_PORT_OUT',
+            label: 'OUT1',
+            pos3d: [2, 0, 0],
+            rotationY: 0,
+            pos2d: { x: 400, y: 150 },
+            rot2d: 0,
+            props: { portName: 'Y' },
+          },
+        ],
+        wires: [
+          { id: 'w1', from: { componentId: 'pin_in', pinId: 'io' }, to: { componentId: 'g1', pinId: 'a' }, color: '#38bdf8' },
+          { id: 'w2', from: { componentId: 'g1', pinId: 'y' }, to: { componentId: 'pin_out', pinId: 'io' }, color: '#22c55e' },
+        ],
+      },
+    };
+
+    // 3. Create Custom IC
+    const createRes = await request(app)
+      .post('/api/custom-ics')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ icPayload: samplePayload });
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.customIc.name).toBe('我的云端反相器');
+    const icId = createRes.body.customIc.id as number;
+
+    // 4. List returns saved IC for owner A, empty for B
+    const listA = await request(app)
+      .get('/api/custom-ics')
+      .set('Authorization', `Bearer ${tokenA}`);
+    expect(listA.status).toBe(200);
+    expect(listA.body.customIcs.some((c: { id: number }) => c.id === icId)).toBe(true);
+
+    const listB = await request(app)
+      .get('/api/custom-ics')
+      .set('Authorization', `Bearer ${tokenB}`);
+    expect(listB.status).toBe(200);
+    expect(listB.body.customIcs.some((c: { id: number }) => c.id === icId)).toBe(false);
+
+    // 5. Cross-user PUT and DELETE return 403
+    const forbiddenPut = await request(app)
+      .put(`/api/custom-ics/${icId}`)
+      .set('Authorization', `Bearer ${tokenB}`)
+      .send({ icPayload: { ...samplePayload, name: '篡改名称' } });
+    expect(forbiddenPut.status).toBe(403);
+
+    const forbiddenDel = await request(app)
+      .delete(`/api/custom-ics/${icId}`)
+      .set('Authorization', `Bearer ${tokenB}`);
+    expect(forbiddenDel.status).toBe(403);
+
+    // 6. Owner PUT & DELETE succeed
+    const updateRes = await request(app)
+      .put(`/api/custom-ics/${icId}`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ icPayload: { ...samplePayload, name: '已更新云端反相器' } });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.customIc.name).toBe('已更新云端反相器');
+
+    const delRes = await request(app)
+      .delete(`/api/custom-ics/${icId}`)
+      .set('Authorization', `Bearer ${tokenA}`);
+    expect(delRes.status).toBe(200);
+  });
 });

@@ -20,6 +20,8 @@ export interface PonderCalloutAnchor {
   color?: string;
   /** Optional list of step indices where this callout is visible. If omitted, always visible. */
   stepIndices?: number[];
+  /** True when the 3D visual or label is a mechanical/hydraulic principle analogy rather than physical hardware. */
+  isAnalogy?: boolean;
 }
 
 export interface PonderProjectedCallout {
@@ -33,6 +35,7 @@ export interface PonderProjectedCallout {
   boxY: number;
   side: 'left' | 'right';
   visible: boolean;
+  isAnalogy?: boolean;
 }
 
 export interface PonderCameraKeyframe {
@@ -57,6 +60,7 @@ export interface PonderStep {
   id: string;
   title: string;
   narration: string;
+  renderNarration?: (params: Record<string, number>) => string;
   durationSec?: number;
   camera: PonderCameraKeyframe;
 }
@@ -78,6 +82,7 @@ export interface PonderModuleSpec {
   englishTitle: string;
   badge: string;
   summary: string;
+  analogyNote?: string;
   formulas: PonderFormula[];
   keyTakeaways: string[];
   controls: PonderInteractiveControl[];

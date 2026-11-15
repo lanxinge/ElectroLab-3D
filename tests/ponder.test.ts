@@ -3,6 +3,10 @@ import * as THREE from 'three';
 import type { ComponentType } from '../shared/types';
 import { COMPONENT_CATALOG } from '../src/engine/componentCatalog';
 import { ALL_PONDER_TYPES, PONDER_DATA } from '../src/ponder/ponderData';
+import {
+  deriveInstancePonderContext,
+  resolveStepNarration,
+} from '../src/ponder/ponderInstanceBridge';
 import { buildCreatePedestal } from '../src/ponder/ponderPrimitives';
 import { PONDER_SCENE_BUILDERS } from '../src/ponder/ponderSceneRegistry';
 import { disposeObject3D } from '../src/sim3d/meshes';
@@ -10,10 +14,10 @@ import { usePonderStore } from '../src/store/usePonderStore';
 
 const ALL_CATALOG_TYPES = Object.keys(COMPONENT_CATALOG) as ComponentType[];
 
-describe('Create-Mod Style Ponder System (All 30 Circuit Modules)', () => {
+describe('Create-Mod Style Ponder System (All 45 Circuit Modules)', () => {
   it('defines complete storyboard specs for every single ComponentType in catalog', () => {
-    expect(ALL_CATALOG_TYPES.length).toBe(30);
-    expect(ALL_PONDER_TYPES.length).toBe(30);
+    expect(ALL_CATALOG_TYPES.length).toBe(45);
+    expect(ALL_PONDER_TYPES.length).toBe(45);
 
     for (const type of ALL_CATALOG_TYPES) {
       const spec = PONDER_DATA[type];
@@ -33,14 +37,14 @@ describe('Create-Mod Style Ponder System (All 30 Circuit Modules)', () => {
     }
   });
 
-  it('registers 30 distinct 3D diorama builder functions (one unique showcase per module)', () => {
+  it('registers 45 distinct 3D diorama builder functions (one unique showcase per module)', () => {
     const builders = ALL_CATALOG_TYPES.map((t) => PONDER_SCENE_BUILDERS[t]);
     expect(builders.every((fn) => typeof fn === 'function')).toBe(true);
     const uniqueFnSet = new Set(builders);
-    expect(uniqueFnSet.size).toBe(30);
+    expect(uniqueFnSet.size).toBe(45);
   });
 
-  it('instantiates, animates, reads telemetry metrics, and disposes all 30 3D dioramas cleanly', () => {
+  it('instantiates, animates, reads telemetry metrics, and disposes all 45 3D dioramas cleanly', () => {
     const pedestal = buildCreatePedestal();
     expect(pedestal).toBeInstanceOf(THREE.Group);
     expect(pedestal.children.length).toBeGreaterThanOrEqual(25);
@@ -140,5 +144,48 @@ describe('Create-Mod Style Ponder System (All 30 Circuit Modules)', () => {
     expect(usePonderStore.getState().activeType).toBe('FULL_ADDER');
     store.closePonder();
     expect(usePonderStore.getState().modalOpen).toBe(false);
+  });
+
+  it('derives circuit-connected instance Ponder context and synchronizes dynamic narration', () => {
+    const rComp = {
+      id: 'r1',
+      type: 'RESISTOR' as const,
+      label: 'R1',
+      pos3d: [0, 0, 0] as [number, number, number],
+      rotationY: 0,
+      pos2d: { x: 200, y: 200 },
+      rot2d: 0,
+      props: { resistance: 1000, maxPower: 0.25 },
+    };
+    const rTel = {
+      componentId: 'r1',
+      voltageDrop: 5,
+      current: 0.005,
+      power: 0.025,
+      maxPower: 0.25,
+      loadRatio: 0.1,
+      overloaded: false,
+      pinVoltages: { p1: 5, p2: 0 },
+    };
+    const dummyWire = {
+      id: 'w1',
+      from: { componentId: 'v1', pinId: 'pos' },
+      to: { componentId: 'r1', pinId: 'p1' },
+      color: '#38bdf8',
+    };
+    const ctx = deriveInstancePonderContext(rComp, rTel, [rComp], [dummyWire]);
+    expect(ctx.initialParams.ohms).toBe(1000);
+    expect(ctx.initialParams.voltage).toBe(5);
+    expect(ctx.causalExplanation).toContain('1.00 kΩ');
+    expect(ctx.causalExplanation).toContain('5.00 mA');
+
+    // Dynamic XOR narration syncs with A=1, B=1 and exposes explicit analogy metadata
+    const xorNarration = resolveStepNarration(PONDER_DATA.XOR, 1, { a: 1, b: 1 });
+    expect(xorNarration).toContain('A=1');
+    expect(xorNarration).toContain('B=1');
+    expect(xorNarration).toContain('Y=0');
+    expect(xorNarration).not.toContain('当前 A=1, B=0');
+    expect(PONDER_DATA.XOR.analogyNote).toContain('原理类比');
+    expect(PONDER_DATA.XOR.callouts.some((c) => c.isAnalogy)).toBe(true);
   });
 });

@@ -1,10 +1,12 @@
 import React from 'react';
-import { Activity, AlertTriangle, RotateCw, Sparkles, Trash2, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Cpu, Flame, PackagePlus, RotateCw, SlidersHorizontal, Sparkles, Trash2, Zap } from 'lucide-react';
 import { COMPONENT_CATALOG, formatEngineeringValue } from '../engine/componentCatalog';
+import { parseCustomIcPayload, parseTruthChipConfig } from '../engine/customIcEngine';
 import { useCircuitStore } from '../store/useCircuitStore';
 import { usePonderStore } from '../store/usePonderStore';
+import { useUIStore } from '../store/useUIStore';
 
-export const PropertyInspector: React.FC = () => {
+export const PropertyInspector: React.FC<{ compact?: boolean }> = ({ compact = true }) => {
   const selected = useCircuitStore((s) => s.selected);
   const components = useCircuitStore((s) => s.components);
   const wires = useCircuitStore((s) => s.wires);
@@ -21,7 +23,7 @@ export const PropertyInspector: React.FC = () => {
 
   if (!selected) {
     return (
-      <div className="p-3 border-b border-slate-800 bg-slate-900/70 text-xs text-slate-400">
+      <div className={`p-3 border-b border-slate-800 bg-slate-900/70 text-xs text-slate-400 overflow-y-auto ${compact ? '' : 'h-full'}`}>
         <div className="font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
           <Zap className="w-3.5 h-3.5 text-sky-400" />
           属性与实时电参量探针
@@ -41,7 +43,7 @@ export const PropertyInspector: React.FC = () => {
     const tc = components.find((c) => c.id === wire.to.componentId);
 
     return (
-      <div className="p-3 border-b border-slate-800 bg-slate-900/80 text-xs space-y-2.5">
+      <div className={`p-3 border-b border-slate-800 bg-slate-900/80 text-xs space-y-2.5 overflow-y-auto ${compact ? '' : 'h-full'}`}>
         <div className="flex items-center justify-between">
           <span className="font-semibold text-sky-300">导线连接详情</span>
           <button
@@ -78,7 +80,7 @@ export const PropertyInspector: React.FC = () => {
   const isScoped = oscilloscopeChannels.includes(comp.id);
 
   return (
-    <div className="p-3 border-b border-slate-800 bg-slate-900/85 text-xs space-y-2.5 overflow-y-auto max-h-[340px]">
+    <div className={`p-3 border-b border-slate-800 bg-slate-900/85 text-xs space-y-2.5 overflow-y-auto ${compact ? 'max-h-[340px]' : 'h-full'}`}>
       <div className="flex items-center justify-between gap-2">
         <div>
           <div className="font-semibold text-slate-100">{spec.name}</div>
@@ -88,7 +90,7 @@ export const PropertyInspector: React.FC = () => {
           <button
             type="button"
             data-testid="inspector-ponder-btn"
-            onClick={() => usePonderStore.getState().openPonder(comp.type)}
+            onClick={() => usePonderStore.getState().openPonder(comp.type, comp.id)}
             title="开启 Create 风格 3D 思索原理演示 (W)"
             className="flex items-center gap-1 px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-300 text-[11px] font-medium transition"
           >
@@ -300,7 +302,7 @@ export const PropertyInspector: React.FC = () => {
           </label>
         )}
 
-        {(comp.type === 'SWITCH_SPST' || comp.type === 'SWITCH_SPDT' || comp.type === 'LOGIC_IN') && (
+        {(comp.type === 'SWITCH_SPST' || comp.type === 'SWITCH_SPDT' || comp.type === 'LOGIC_IN' || comp.type === 'IC_PORT_IN') && (
           <div className="flex items-center justify-between gap-2">
             <button
               onClick={() => toggleInteractiveComponent(comp.id)}
@@ -316,6 +318,300 @@ export const PropertyInspector: React.FC = () => {
             </button>
           </div>
         )}
+
+        {(comp.type === 'IC_PORT_IN' || comp.type === 'IC_PORT_OUT') && (
+          <label className="flex items-center justify-between text-[11px]">
+            <span className="text-slate-400">封装引脚名:</span>
+            <input
+              type="text"
+              maxLength={8}
+              value={String(comp.props.portName ?? comp.label)}
+              onChange={(e) => updateComponentProp(comp.id, 'portName', e.target.value.trim() || comp.label)}
+              className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-center"
+            />
+          </label>
+        )}
+
+        {comp.type === 'INF_SOURCE' && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="text-slate-400">输出模式:</span>
+              <select
+                value={String(comp.props.waveform ?? 'dc')}
+                onChange={(e) => updateComponentProp(comp.id, 'waveform', e.target.value)}
+                className="bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs"
+              >
+                <option value="dc">无限恒压直流 (DC)</option>
+                <option value="sine">无限交流正弦 (Sine)</option>
+                <option value="square">无限交流方波 (Square)</option>
+              </select>
+            </div>
+            <div className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="text-slate-400">无限电压/幅值 (V):</span>
+              <input
+                type="number"
+                step={10}
+                value={Number(comp.props.voltage ?? 12)}
+                onChange={(e) => updateComponentProp(comp.id, 'voltage', Number(e.target.value) || 0)}
+                className="w-28 bg-slate-900 border border-rose-500/50 rounded px-2 py-0.5 font-mono text-right text-rose-200"
+              />
+            </div>
+            {String(comp.props.waveform ?? 'dc') !== 'dc' && (
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="text-slate-400">频率 (Hz):</span>
+                <input
+                  type="number"
+                  min={0.1}
+                  step={0.5}
+                  value={Number(comp.props.frequency ?? 2)}
+                  onChange={(e) => updateComponentProp(comp.id, 'frequency', Math.max(0.1, Number(e.target.value) || 2))}
+                  className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-right"
+                />
+              </div>
+            )}
+            <div className="grid grid-cols-4 gap-1 text-[10px]">
+              {[12, 220, 10000, 1000000].map((vPreset) => (
+                <button
+                  key={vPreset}
+                  type="button"
+                  onClick={() => updateComponentProp(comp.id, 'voltage', vPreset)}
+                  className="py-1 rounded bg-slate-800 hover:bg-rose-900/50 border border-slate-700 text-slate-200 font-mono"
+                >
+                  {vPreset >= 1e6 ? '1MV' : vPreset >= 1000 ? `${vPreset / 1000}kV` : `${vPreset}V`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {comp.type === 'INF_RESISTOR' && (
+          <div className="space-y-1.5">
+            <label className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">理想无穷断路 (R=∞, I=0):</span>
+              <input
+                type="checkbox"
+                checked={comp.props.idealInfinite !== false}
+                onChange={(e) => updateComponentProp(comp.id, 'idealInfinite', e.target.checked)}
+                className="accent-fuchsia-500"
+              />
+            </label>
+            <div className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="text-slate-400">自定义超高阻值 (Ω):</span>
+              <input
+                type="number"
+                min={1e6}
+                step={1e6}
+                disabled={comp.props.idealInfinite !== false}
+                value={Number(comp.props.resistance ?? 1e12)}
+                onChange={(e) =>
+                  updateComponentProp(comp.id, 'resistance', Math.max(1e6, Number(e.target.value) || 1e12))
+                }
+                className="w-28 bg-slate-900 border border-fuchsia-500/40 rounded px-2 py-0.5 font-mono text-right text-fuchsia-200 disabled:opacity-40"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-1 text-[10px]">
+              {[
+                { label: '1GΩ', val: 1e9, inf: false },
+                { label: '1TΩ', val: 1e12, inf: false },
+                { label: '∞ 开路', val: 1e15, inf: true },
+              ].map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => {
+                    updateComponentProp(comp.id, 'idealInfinite', p.inf);
+                    updateComponentProp(comp.id, 'resistance', p.val);
+                  }}
+                  className="py-1 rounded bg-slate-800 hover:bg-fuchsia-900/40 border border-slate-700 text-slate-200 font-mono"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {comp.type === 'ZENER_DIODE' && (
+          <label className="flex items-center justify-between text-[11px]">
+            <span className="text-slate-400">齐纳稳压值 Vz (V):</span>
+            <input
+              type="number"
+              min={1.2}
+              max={100}
+              step={0.1}
+              value={Number(comp.props.vz ?? 5.1)}
+              onChange={(e) => updateComponentProp(comp.id, 'vz', Math.max(1.2, Number(e.target.value)))}
+              className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-right"
+            />
+          </label>
+        )}
+
+        {comp.type === 'NMOS' && (
+          <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+            <label>
+              <span className="text-slate-400 block">阈值 V_th (V)</span>
+              <input
+                type="number"
+                min={0.5}
+                max={10}
+                step={0.1}
+                value={Number(comp.props.vth ?? 2.0)}
+                onChange={(e) => updateComponentProp(comp.id, 'vth', Math.max(0.2, Number(e.target.value)))}
+                className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 font-mono"
+              />
+            </label>
+            <label>
+              <span className="text-slate-400 block">跨导 kp (A/V²)</span>
+              <input
+                type="number"
+                min={0.005}
+                max={2}
+                step={0.01}
+                value={Number(comp.props.kp ?? 0.08)}
+                onChange={(e) => updateComponentProp(comp.id, 'kp', Math.max(0.001, Number(e.target.value)))}
+                className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 font-mono"
+              />
+            </label>
+          </div>
+        )}
+
+        {comp.type === 'TRANSFORMER' && (
+          <label className="flex items-center justify-between text-[11px]">
+            <span className="text-slate-400">匝数比 Ns : Np:</span>
+            <input
+              type="number"
+              min={0.05}
+              max={20}
+              step={0.05}
+              value={Number(comp.props.ratio ?? 2.0)}
+              onChange={(e) =>
+                updateComponentProp(comp.id, 'ratio', Math.max(0.05, Number(e.target.value) || 2.0))
+              }
+              className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-right"
+            />
+          </label>
+        )}
+
+        {comp.type === 'LAMP' && (
+          <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+            <label>
+              <span className="text-slate-400 block">额定电压 (V)</span>
+              <input
+                type="number"
+                min={0.5}
+                step={0.5}
+                value={Number(comp.props.ratedVoltage ?? 5)}
+                onChange={(e) =>
+                  updateComponentProp(comp.id, 'ratedVoltage', Math.max(0.5, Number(e.target.value)))
+                }
+                className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 font-mono"
+              />
+            </label>
+            <label>
+              <span className="text-slate-400 block">额定功率 (W)</span>
+              <input
+                type="number"
+                min={0.05}
+                step={0.25}
+                value={Number(comp.props.ratedPower ?? 1.5)}
+                onChange={(e) =>
+                  updateComponentProp(comp.id, 'ratedPower', Math.max(0.05, Number(e.target.value)))
+                }
+                className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 font-mono"
+              />
+            </label>
+          </div>
+        )}
+
+        {comp.type === 'FUSE' && (
+          <div className="space-y-1.5">
+            <label className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">熔断电流阈值 I_trip (A):</span>
+              <input
+                type="number"
+                min={0.01}
+                step={0.1}
+                value={Number(comp.props.tripCurrent ?? 0.5)}
+                onChange={(e) =>
+                  updateComponentProp(comp.id, 'tripCurrent', Math.max(0.01, Number(e.target.value)))
+                }
+                className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-right"
+              />
+            </label>
+            {Boolean(comp.props.blown) && (
+              <div className="p-2 rounded bg-red-950/60 border border-red-500/50 space-y-1.5">
+                <div className="flex items-center gap-1 text-red-300 text-[11px] font-medium">
+                  <Flame className="w-3.5 h-3.5" /> 已过流熔断 — 电路已安全断开
+                </div>
+                <button
+                  type="button"
+                  data-testid="reset-fuse-btn"
+                  onClick={() => toggleInteractiveComponent(comp.id)}
+                  className="w-full py-1 rounded bg-red-600 hover:bg-red-500 text-white text-[11px] font-medium"
+                >
+                  更换并恢复保险丝
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {(comp.type === 'CUSTOM_TRUTH_8' || comp.type === 'CUSTOM_TRUTH_16') && (() => {
+          const cfg = parseTruthChipConfig(comp);
+          const inCount = cfg.slots.filter((s) => s.role === 'IN').length;
+          const outCount = cfg.slots.filter((s) => s.role === 'OUT').length;
+          return (
+            <div className="space-y-2">
+              <label className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400">芯片型号名:</span>
+                <input
+                  type="text"
+                  maxLength={12}
+                  value={String(comp.props.chipName ?? cfg.chipName)}
+                  onChange={(e) => updateComponentProp(comp.id, 'chipName', e.target.value.trim() || cfg.chipName)}
+                  className="w-28 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-right"
+                />
+              </label>
+              <div className="text-[10px] text-slate-400 flex items-center justify-between">
+                <span>配置引脚: {inCount} IN / {outCount} OUT</span>
+                <span className="text-purple-300">{cfg.mode === 'expr' ? '公式模式' : '真值表模式'}</span>
+              </div>
+              <button
+                type="button"
+                data-testid="open-truth-editor-btn"
+                onClick={() => useUIStore.getState().openTruthEditor(comp.id)}
+                className="w-full py-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white font-medium text-xs flex items-center justify-center gap-1.5 transition"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                打开真值芯片编程器
+              </button>
+            </div>
+          );
+        })()}
+
+        {comp.type === 'CUSTOM_IC' && (() => {
+          const payload = parseCustomIcPayload(comp);
+          return (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 text-fuchsia-300 font-medium text-[11px]">
+                <Cpu className="w-3.5 h-3.5" />
+                <span>{payload.name} ({payload.codeName})</span>
+              </div>
+              <div className="text-[10px] text-slate-400">
+                封装内部含 {payload.internalCircuit.components.length} 个元件 ·{' '}
+                {payload.internalCircuit.wires.length} 根连线 · {payload.pins.length} 引脚
+              </div>
+              <button
+                type="button"
+                onClick={() => useUIStore.getState().setPackageIcModalOpen(true)}
+                className="w-full py-1 rounded bg-fuchsia-600/30 hover:bg-fuchsia-600/40 border border-fuchsia-500/40 text-fuchsia-200 text-[11px] flex items-center justify-center gap-1"
+              >
+                <PackagePlus className="w-3.5 h-3.5" />
+                打开云端 IC 封装库
+              </button>
+            </div>
+          );
+        })()}
 
         {comp.type === 'LOGIC_IN' && (
           <label className="flex items-center justify-between text-[11px]">

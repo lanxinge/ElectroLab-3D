@@ -13,6 +13,10 @@ import type { ComponentCategory, ComponentType } from '../../shared/types';
 import { CATEGORY_LABELS, COMPONENT_CATALOG } from '../engine/componentCatalog';
 import { ALL_PONDER_TYPES, PONDER_DATA } from '../ponder/ponderData';
 import { Ponder3DStage } from '../ponder/Ponder3DStage';
+import {
+  deriveInstancePonderContext,
+  resolveStepNarration,
+} from '../ponder/ponderInstanceBridge';
 import type { PonderLiveMetric, PonderProjectedCallout } from '../ponder/ponderTypes';
 import { useCircuitStore } from '../store/useCircuitStore';
 import { usePonderStore } from '../store/usePonderStore';
@@ -30,8 +34,16 @@ function buildDefaultParams(type: ComponentType): Record<string, number> {
 export const PonderModal: React.FC = () => {
   const modalOpen = usePonderStore((s) => s.modalOpen);
   const activeType = usePonderStore((s) => s.activeType);
+  const activeComponentId = usePonderStore((s) => s.activeComponentId);
+  const ponderMode = usePonderStore((s) => s.ponderMode);
   const openPonder = usePonderStore((s) => s.openPonder);
+  const setPonderMode = usePonderStore((s) => s.setPonderMode);
   const closePonder = usePonderStore((s) => s.closePonder);
+
+  const components = useCircuitStore((s) => s.components);
+  const wires = useCircuitStore((s) => s.wires);
+  const telemetryById = useCircuitStore((s) => s.telemetryById);
+  const selected = useCircuitStore((s) => s.selected);
   const addComponent = useCircuitStore((s) => s.addComponent);
 
   const stageHostRef = useRef<HTMLDivElement | null>(null);
@@ -47,6 +59,32 @@ export const PonderModal: React.FC = () => {
   const [catFilter, setCatFilter] = useState<ComponentCategory | 'all'>('all');
 
   const spec = activeType ? PONDER_DATA[activeType] : null;
+
+  const linkedComp = useMemo(() => {
+    if (!activeType) return null;
+    if (activeComponentId) {
+      const exact = components.find((c) => c.id === activeComponentId);
+      if (exact && exact.type === activeType) return exact;
+    }
+    if (selected?.kind === 'component') {
+      const sel = components.find((c) => c.id === selected.id);
+      if (sel && sel.type === activeType) return sel;
+    }
+    return components.find((c) => c.type === activeType) ?? null;
+  }, [activeType, activeComponentId, selected, components]);
+
+  const effectiveMode =
+    ponderMode === 'instance' && linkedComp ? 'instance' : 'standard';
+
+  const instanceCtx = useMemo(() => {
+    if (!linkedComp) return null;
+    return deriveInstancePonderContext(
+      linkedComp,
+      telemetryById[linkedComp.id],
+      components,
+      wires
+    );
+  }, [linkedComp, telemetryById, components, wires]);
 
   // Mount Three.js Ponder3DStage when modal opens
   useEffect(() => {
@@ -65,10 +103,13 @@ export const PonderModal: React.FC = () => {
     };
   }, [modalOpen]);
 
-  // Switch active module inside stage cleanly
+  // Switch active module or mode inside stage cleanly
   useEffect(() => {
     if (!modalOpen || !activeType) return;
-    const initial = buildDefaultParams(activeType);
+    const initial =
+      effectiveMode === 'instance' && instanceCtx
+        ? { ...instanceCtx.initialParams }
+        : buildDefaultParams(activeType);
     setParams(initial);
     setStepIndex(0);
     setStepProgress(0);
@@ -76,7 +117,7 @@ export const PonderModal: React.FC = () => {
     setCallouts([]);
     setMetrics([]);
     stageRef.current?.loadModule(activeType, initial);
-  }, [modalOpen, activeType]);
+  }, [modalOpen, activeType, effectiveMode, linkedComp?.id]);
 
   // Push params & playback progress into 3D stage
   useEffect(() => {
@@ -197,6 +238,34 @@ export const PonderModal: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {linkedComp && (
+              <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg p-0.5 text-[11px]">
+                <button
+                  type="button"
+                  data-testid="ponder-mode-instance"
+                  onClick={() => setPonderMode('instance')}
+                  className={`px-2.5 py-1 rounded-md font-medium transition whitespace-nowrap ${
+                    effectiveMode === 'instance'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  解释当前元件 · {linkedComp.label}
+                </button>
+                <button
+                  type="button"
+                  data-testid="ponder-mode-standard"
+                  onClick={() => setPonderMode('standard')}
+                  className={`px-2.5 py-1 rounded-md font-medium transition whitespace-nowrap ${
+                    effectiveMode === 'standard'
+                      ? 'bg-amber-500 text-slate-950 shadow-sm'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  标准原理演示
+                </button>
+              </div>
+            )}
             <button
               type="button"
               onClick={handleAddToWorkbench}
@@ -268,10 +337,18 @@ export const PonderModal: React.FC = () => {
               <div
                 key={`lbl-${c.id}`}
                 style={{ left: c.boxX, top: c.boxY, borderColor: `${c.color}88` }}
-                className="pointer-events-none absolute max-w-[165px] px-2 py-1 rounded-md bg-slate-900/88 border backdrop-blur-sm shadow-lg"
+                className="pointer-events-none absolute max-w-[175px] px-2 py-1 rounded-md bg-slate-900/88 border backdrop-blur-sm shadow-lg"
               >
-                <div className="text-[11px] font-semibold leading-tight" style={{ color: c.color }}>
-                  {c.title}
+                <div className="flex items-center gap-1 text-[11px] font-semibold leading-tight" style={{ color: c.color }}>
+                  <span>{c.title}</span>
+                  {c.isAnalogy && (
+                    <span
+                      data-testid="ponder-analogy-callout-badge"
+                      className="px-1 py-0.2 rounded bg-violet-500/25 border border-violet-400/50 text-[9px] text-violet-200 shrink-0"
+                    >
+                      类比
+                    </span>
+                  )}
                 </div>
                 {c.detail && (
                   <div className="text-[10px] text-slate-300 leading-tight mt-0.5">
@@ -283,7 +360,7 @@ export const PonderModal: React.FC = () => {
 
             {/* Top-Left Live Metrics & Hint */}
             <div className="pointer-events-none absolute top-3 left-3 flex flex-wrap items-center gap-2 max-w-[75%]">
-              {metrics.map((m, idx) => (
+              {(effectiveMode === 'instance' && instanceCtx ? instanceCtx.liveMetrics : metrics).map((m, idx) => (
                 <div
                   key={idx}
                   className={`px-2.5 py-1 rounded-lg border text-[11px] backdrop-blur-md shadow ${accentBadgeClass(
@@ -327,6 +404,8 @@ export const PonderModal: React.FC = () => {
                         </button>
                       );
                     }
+                    const sMin = Math.min(ctrl.min ?? 0, val);
+                    const sMax = Math.max(ctrl.max ?? 10, val);
                     return (
                       <label key={ctrl.key} className="flex items-center gap-2 text-xs text-slate-200">
                         <span className="text-[11px] text-slate-400 whitespace-nowrap">
@@ -334,8 +413,8 @@ export const PonderModal: React.FC = () => {
                         </span>
                         <input
                           type="range"
-                          min={ctrl.min ?? 0}
-                          max={ctrl.max ?? 10}
+                          min={sMin}
+                          max={sMax}
                           step={ctrl.step ?? 0.5}
                           value={val}
                           onChange={(e) =>
@@ -344,7 +423,7 @@ export const PonderModal: React.FC = () => {
                           className="w-28 accent-amber-400 cursor-pointer"
                         />
                         <span className="font-mono text-amber-300 text-[11px] min-w-[46px]">
-                          {Number.isInteger(ctrl.step ?? 1) ? val : val.toFixed(1)}
+                          {Number.isInteger(ctrl.step ?? 1) ? Number(val.toFixed(0)) : val.toFixed(1)}
                           {ctrl.unit ?? ''}
                         </span>
                       </label>
@@ -435,8 +514,49 @@ export const PonderModal: React.FC = () => {
               <div className="text-[11px] font-semibold text-amber-300 uppercase tracking-wide mb-1">
                 步骤 {stepIndex + 1} · {currentStep.title}
               </div>
-              <p className="text-xs leading-relaxed text-slate-200">{currentStep.narration}</p>
+              <p data-testid="ponder-step-narration" className="text-xs leading-relaxed text-slate-200">
+                {resolveStepNarration(spec, stepIndex, params)}
+              </p>
             </div>
+
+            {effectiveMode === 'instance' && instanceCtx && (
+              <div
+                data-testid="ponder-instance-card"
+                className="p-3.5 rounded-xl bg-emerald-950/45 border border-emerald-500/40 space-y-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-emerald-300">
+                    当前电路实测推导 · {instanceCtx.componentLabel}
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-[10px] text-emerald-200">
+                    工作台同步
+                  </span>
+                </div>
+                <p className="text-xs leading-relaxed text-slate-100">
+                  {instanceCtx.causalExplanation}
+                </p>
+                {instanceCtx.pinSummary && (
+                  <div className="px-2 py-1.5 rounded bg-slate-950/80 border border-slate-800 font-mono text-[10px] text-sky-300 leading-relaxed break-all">
+                    {instanceCtx.pinSummary}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {spec.analogyNote && (
+              <div
+                data-testid="ponder-analogy-note"
+                className="px-3 py-2 rounded-lg bg-violet-950/40 border border-violet-500/35 text-[11px] text-violet-200 leading-relaxed flex items-start gap-2"
+              >
+                <span
+                  data-testid="ponder-analogy-badge"
+                  className="px-1.5 py-0.5 rounded bg-violet-500/25 border border-violet-400/50 text-[10px] font-semibold text-violet-100 shrink-0"
+                >
+                  原理类比
+                </span>
+                <span>{spec.analogyNote}</span>
+              </div>
+            )}
 
             {/* Formulas */}
             <div>

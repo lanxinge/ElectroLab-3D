@@ -78,6 +78,19 @@ export function createDb(customPath?: string): DatabaseSyncType {
       FOREIGN KEY (post_id) REFERENCES forum_posts(id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS custom_ics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      code_name TEXT NOT NULL DEFAULT 'U',
+      description TEXT NOT NULL DEFAULT '',
+      color TEXT NOT NULL DEFAULT '#0284c7',
+      ic_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 
   return db;

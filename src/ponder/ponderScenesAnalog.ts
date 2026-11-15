@@ -444,32 +444,46 @@ export const buildResistorDiorama: PonderDioramaBuilder = () => {
   return {
     root,
     update: (elapsed, _s, _p, params) => {
-      const ohms = params.ohms ?? 220;
+      const ohms = Math.max(1, params.ohms ?? 220);
+      const voltage = Math.max(0, params.voltage ?? 5);
       const colors = computeResistorBandColors(ohms);
       for (let i = 0; i < 4; i++) {
         bandMats[i].color.setHex(colors[i]);
         bandMats[i].emissive.setHex(colors[i]);
       }
-      // At 5V: P = 25 / ohms, I = 5 / ohms
-      const heatRatio = Math.min(1, 150 / Math.max(30, ohms));
-      heatCoreMat.emissiveIntensity = 0.08 + heatRatio * (0.9 + 0.25 * Math.sin(elapsed * 8));
+      const powerW = (voltage * voltage) / ohms;
+      const heatRatio = Math.min(1, powerW / 0.35);
+      heatCoreMat.emissiveIntensity = voltage <= 0.01 ? 0.03 : 0.08 + heatRatio * (0.9 + 0.25 * Math.sin(elapsed * 8));
       heatCoreMat.color.setHex(heatRatio > 0.65 ? 0xef4444 : 0xf97316);
       heatCoreMat.emissive.setHex(heatRatio > 0.65 ? 0xef4444 : 0xf97316);
 
       latticeNodes.forEach((n, idx) => {
-        n.position.y = 0.58 + Math.sin(elapsed * (6 + heatRatio * 14) + idx) * (0.015 + heatRatio * 0.035);
+        n.position.y =
+          0.58 + Math.sin(elapsed * (4 + heatRatio * 16) + idx) * (0.008 + heatRatio * 0.035);
       });
 
-      const flowSpeed = 0.4 + (220 / Math.max(50, ohms)) * 1.1;
-      stream.update(elapsed, flowSpeed, true, false, 0x38bdf8);
+      const currentA = voltage / ohms;
+      const flowSpeed = Math.min(3.5, Math.max(0.08, currentA * 55));
+      stream.update(elapsed, flowSpeed, voltage > 0.01, false, 0x38bdf8);
     },
     getLiveReadout: (_e, _s, params) => {
-      const r = params.ohms ?? 220;
-      const iMa = (5 / r) * 1000;
-      const powerMw = (25 / r) * 1000;
+      const r = Math.max(1, params.ohms ?? 220);
+      const v = Math.max(0, params.voltage ?? 5);
+      const currentA = v / r;
+      const powerW = v * currentA;
+      const rLabel = r >= 1000 ? `${(r / 1000).toFixed(r % 1000 === 0 ? 1 : 2)} kΩ` : `${r} Ω`;
+      const iLabel =
+        currentA >= 1
+          ? `${currentA.toFixed(2)} A`
+          : currentA >= 1e-3
+          ? `${(currentA * 1000).toFixed(2)} mA`
+          : `${(currentA * 1e6).toFixed(1)} µA`;
+      const pLabel = powerW >= 1 ? `${powerW.toFixed(2)} W` : `${(powerW * 1000).toFixed(1)} mW`;
       return [
-        { label: '电流 I (@5V)', value: `${iMa.toFixed(1)} mA`, accent: 'sky' },
-        { label: '热功耗 P = V²/R', value: `${powerMw.toFixed(0)} mW`, accent: powerMw > 250 ? 'rose' : 'amber' },
+        { label: '阻值 R', value: rLabel, accent: 'amber' },
+        { label: '压降 ΔV', value: `${v.toFixed(2)} V`, accent: 'sky' },
+        { label: '电流 I', value: iLabel, accent: 'emerald' },
+        { label: '热功耗 P = V²/R', value: pLabel, accent: powerW > 0.25 ? 'rose' : 'violet' },
       ];
     },
   };

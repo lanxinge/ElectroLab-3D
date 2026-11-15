@@ -7,6 +7,7 @@ import {
   usePonderStore,
 } from '../store/usePonderStore';
 import type { PonderTarget } from '../ponder/ponderTypes';
+import { useCircuitStore } from '../store/useCircuitStore';
 
 export const PonderHoverOverlay: React.FC = () => {
   const hoveredTarget = usePonderStore((s) => s.hoveredTarget);
@@ -84,14 +85,23 @@ export const PonderHoverOverlay: React.FC = () => {
 
   // Global [W] hotkey matching Create Mod's signature "Hold/Press W to Ponder"
   useEffect(() => {
-    if (!displayTarget || modalOpen) return;
+    if (modalOpen) return;
     const handleKey = (e: KeyboardEvent) => {
       if (e.key !== 'w' && e.key !== 'W') return;
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-      if (elapsedMs >= PONDER_DWELL_SHOW_MS) {
+      if (displayTarget && elapsedMs >= PONDER_DWELL_SHOW_MS) {
         e.preventDefault();
-        openPonder(displayTarget.type);
+        openPonder(displayTarget.type, displayTarget.componentId);
+        return;
+      }
+      const st = useCircuitStore.getState();
+      if (st.selected?.kind === 'component') {
+        const comp = st.components.find((c) => c.id === st.selected?.id);
+        if (comp) {
+          e.preventDefault();
+          openPonder(comp.type, comp.id);
+        }
       }
     };
     window.addEventListener('keydown', handleKey);
@@ -133,7 +143,7 @@ export const PonderHoverOverlay: React.FC = () => {
         <button
           type="button"
           data-testid="ponder-trigger-btn"
-          onClick={() => openPonder(displayTarget.type)}
+          onClick={() => openPonder(displayTarget.type, displayTarget.componentId)}
           className="group flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900/95 hover:bg-slate-800 border border-amber-400/70 shadow-xl shadow-amber-950/40 backdrop-blur-md text-left transition cursor-pointer"
         >
           <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-amber-500/20 border border-amber-400/50 text-amber-300 group-hover:scale-110 transition-transform">

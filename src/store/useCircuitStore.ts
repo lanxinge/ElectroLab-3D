@@ -4,6 +4,7 @@ import type {
   CircuitData,
   ComponentTelemetry,
   ComponentType,
+  CustomIcPayload,
   PinRef,
   Wire,
   WireTelemetry,
@@ -13,6 +14,7 @@ import {
   world2dTo3d,
   world3dTo2d,
 } from '../engine/componentCatalog';
+import { getDefaultTruthChipConfig } from '../engine/customIcEngine';
 import {
   createInitialRuntimeState,
   solveCircuitStep,
@@ -54,6 +56,7 @@ interface CircuitStoreState {
   wireTelemetryById: Record<string, WireTelemetry>;
   implicitGroundUsed: boolean;
   warnings: string[];
+  circuitLoadVersion: number;
   oscilloscopeChannels: string[]; // componentIds (up to 4)
   oscilloscopeSamples: OscilloscopeSample[];
   show3DLabels: boolean;
@@ -80,6 +83,11 @@ interface CircuitStoreState {
     pos3d?: [number, number, number],
     pos2d?: { x: number; y: number }
   ) => CircuitComponent;
+  spawnCustomIc: (
+    icPayload: CustomIcPayload,
+    pos3d?: [number, number, number],
+    pos2d?: { x: number; y: number }
+  ) => CircuitComponent;
   moveComponent3D: (id: string, pos3d: [number, number, number], commitHistory?: boolean) => void;
   moveComponent2D: (id: string, pos2d: { x: number; y: number }, commitHistory?: boolean) => void;
   pushUndoSnapshot: () => void;
@@ -87,6 +95,7 @@ interface CircuitStoreState {
   rotateComponent: (id: string) => void;
   updateComponentLabel: (id: string, label: string) => void;
   updateComponentProp: (id: string, key: string, value: number | string | boolean) => void;
+  resetFuse: (id: string) => void;
   toggleInteractiveComponent: (id: string) => void;
 
   addWire: (from: PinRef, to: PinRef, color?: string) => void;
@@ -169,6 +178,7 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
   sidebarMode: 'split',
   schematicTheme: 'dark',
   historyPast: [],
+  circuitLoadVersion: 0,
   wiringDraftFrom: null,
 
   setActiveTool: (tool) => set({ activeTool: tool, wiringDraftFrom: null }),
@@ -210,7 +220,19 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
         ? [...state.oscilloscopeSamples.slice(-239), { t: res.time, values }]
         : state.oscilloscopeSamples;
 
+    const fuseSyncNeeded = state.components.some(
+      (c) => c.type === 'FUSE' && state.simRuntime.blownFuses[c.id] && !Boolean(c.props.blown)
+    );
+    const nextComponents = fuseSyncNeeded
+      ? state.components.map((c) =>
+          c.type === 'FUSE' && state.simRuntime.blownFuses[c.id] && !Boolean(c.props.blown)
+            ? { ...c, props: { ...c.props, blown: true } }
+            : c
+        )
+      : state.components;
+
     set({
+      ...(fuseSyncNeeded ? { components: nextComponents } : {}),
       simTime: res.time,
       telemetryById: res.telemetryById,
       wireTelemetryById: res.wireTelemetryById,
@@ -283,6 +305,16 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       props.varName = label;
     } else if (type === 'LOGIC_OUT') {
       props.outName = label;
+    } else if (type === 'IC_PORT_IN' || type === 'IC_PORT_OUT') {
+      props.portName = label;
+    } else if (type === 'CUSTOM_TRUTH_8') {
+      const cfg = getDefaultTruthChipConfig(8);
+      props.chipName = cfg.chipName;
+      props.truthConfigJson = JSON.stringify(cfg);
+    } else if (type === 'CUSTOM_TRUTH_16') {
+      const cfg = getDefaultTruthChipConfig(16);
+      props.chipName = cfg.chipName;
+      props.truthConfigJson = JSON.stringify(cfg);
     }
 
     const comp: CircuitComponent = {
@@ -294,6 +326,56 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       pos2d,
       rot2d: 0,
       props,
+    };
+
+    const nextComponents = [...state.components, comp];
+    const res = solveCircuitStep({ components: nextComponents, wires: state.wires }, state.simRuntime, 0);
+    set({
+      components: nextComponents,
+      selected: { kind: 'component', id: comp.id },
+      telemetryById: res.telemetryById,
+      wireTelemetryById: res.wireTelemetryById,
+      implicitGroundUsed: res.implicitGroundUsed,
+      warnings: res.warnings,
+    });
+    return comp;
+  },
+
+  spawnCustomIc: (icPayload, pos3dArg, pos2dArg) => {
+    const state = get();
+    state.pushUndoSnapshot();
+    const label = nextComponentLabel('CUSTOM_IC', state.components);
+
+    let pos3d: [number, number, number];
+    let pos2d: { x: number; y: number };
+    if (pos3dArg) {
+      pos3d = pos3dArg;
+      pos2d = pos2dArg ?? world3dTo2d(pos3dArg);
+    } else if (pos2dArg) {
+      pos2d = pos2dArg;
+      pos3d = world2dTo3d(pos2dArg);
+    } else {
+      const n = state.components.length;
+      const offsetX = ((n % 5) - 2) * 1.4;
+      const offsetZ = (Math.floor(n / 5) % 4 - 1.5) * 1.4;
+      pos3d = [Number(offsetX.toFixed(2)), 0, Number(offsetZ.toFixed(2))];
+      pos2d = world3dTo2d(pos3d);
+    }
+
+    const comp: CircuitComponent = {
+      id: genId('custom_ic'),
+      type: 'CUSTOM_IC',
+      label,
+      pos3d,
+      rotationY: 0,
+      pos2d,
+      rot2d: 0,
+      props: {
+        icName: icPayload.name,
+        codeName: icPayload.codeName,
+        color: icPayload.color || '#0284c7',
+        icJson: JSON.stringify(icPayload),
+      },
     };
 
     const nextComponents = [...state.components, comp];
@@ -369,6 +451,12 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
     });
   },
 
+  resetFuse: (id) => {
+    const state = get();
+    state.simRuntime.blownFuses[id] = false;
+    state.updateComponentProp(id, 'blown', false);
+  },
+
   toggleInteractiveComponent: (id) => {
     const state = get();
     const comp = state.components.find((c) => c.id === id);
@@ -377,8 +465,10 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       state.updateComponentProp(id, 'closed', !Boolean(comp.props.closed ?? true));
     } else if (comp.type === 'SWITCH_SPDT') {
       state.updateComponentProp(id, 'position', Number(comp.props.position ?? 0) === 0 ? 1 : 0);
-    } else if (comp.type === 'LOGIC_IN') {
+    } else if (comp.type === 'LOGIC_IN' || comp.type === 'IC_PORT_IN') {
       state.updateComponentProp(id, 'state', Number(comp.props.state ?? 0) ? 0 : 1);
+    } else if (comp.type === 'FUSE') {
+      state.resetFuse(id);
     }
   },
 
@@ -454,12 +544,13 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       passive: 1,
       semiconductor: 2,
       digital: 2,
+      custom: 2,
     };
     const buckets: CircuitComponent[][] = [[], [], [], []];
     for (const c of state.components) {
-      if (c.type === 'LOGIC_IN' || c.type === 'CLOCK') {
+      if (c.type === 'LOGIC_IN' || c.type === 'CLOCK' || c.type === 'IC_PORT_IN') {
         buckets[0].push(c);
-      } else if (c.type === 'LOGIC_OUT' || c.type === 'HEX_DISPLAY') {
+      } else if (c.type === 'LOGIC_OUT' || c.type === 'HEX_DISPLAY' || c.type === 'IC_PORT_OUT') {
         buckets[3].push(c);
       } else {
         const cat = COMPONENT_CATALOG[c.type].category;
@@ -475,19 +566,20 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
         });
       });
     });
-    set({
+    set((s) => ({
       components: state.components.map((c) => ({
         ...c,
         pos2d: updatedMap.get(c.id) ?? c.pos2d,
       })),
-    });
+      circuitLoadVersion: s.circuitLoadVersion + 1,
+    }));
   },
 
   clearWorkbench: () => {
     const state = get();
     state.pushUndoSnapshot();
     const freshRuntime = createInitialRuntimeState();
-    set({
+    set((s) => ({
       projectTitle: '新建空白实验电路',
       activePresetId: null,
       components: [],
@@ -502,7 +594,8 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       warnings: [],
       oscilloscopeChannels: [],
       oscilloscopeSamples: [],
-    });
+      circuitLoadVersion: s.circuitLoadVersion + 1,
+    }));
   },
 
   loadCircuit: (circuit, title, presetId = null) => {
@@ -521,7 +614,7 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       freshRuntime,
       0
     );
-    set({
+    set((s) => ({
       projectTitle: title || '加载的实验电路',
       activePresetId: presetId,
       components: normalizedComponents,
@@ -537,7 +630,8 @@ export const useCircuitStore = create<CircuitStoreState>((set, get) => ({
       oscilloscopeChannels: pickDefaultScopeChannels(normalizedComponents),
       oscilloscopeSamples: [],
       historyPast: [],
-    });
+      circuitLoadVersion: s.circuitLoadVersion + 1,
+    }));
   },
 
   toggleOscilloscopeChannel: (componentId) => {

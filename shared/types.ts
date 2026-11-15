@@ -3,7 +3,8 @@ export type ComponentCategory =
   | 'passive'
   | 'semiconductor'
   | 'instrument'
-  | 'digital';
+  | 'digital'
+  | 'custom';
 
 export type ComponentType =
   // Power & Ground
@@ -11,17 +12,24 @@ export type ComponentType =
   | 'AC_SOURCE'
   | 'CURRENT_SOURCE'
   | 'GROUND'
+  | 'INF_SOURCE'
   // Passive & Switches
   | 'RESISTOR'
+  | 'INF_RESISTOR'
   | 'POTENTIOMETER'
   | 'CAPACITOR'
   | 'INDUCTOR'
+  | 'TRANSFORMER'
   | 'SWITCH_SPST'
   | 'SWITCH_SPDT'
+  | 'FUSE'
+  | 'LAMP'
   // Semiconductors & Op-Amp
   | 'DIODE'
+  | 'ZENER_DIODE'
   | 'LED'
   | 'BJT_NPN'
+  | 'NMOS'
   | 'OPAMP'
   // Instruments
   | 'VOLTMETER'
@@ -38,9 +46,18 @@ export type ComponentType =
   | 'NOR'
   | 'XOR'
   | 'XNOR'
+  | 'MUX_2_1'
   | 'HALF_ADDER'
   | 'FULL_ADDER'
-  | 'D_FF';
+  | 'D_FF'
+  | 'JK_FF'
+  | 'COUNTER_4BIT'
+  // Custom Programmable & Cloud Packaged ICs
+  | 'CUSTOM_TRUTH_8'
+  | 'CUSTOM_TRUTH_16'
+  | 'IC_PORT_IN'
+  | 'IC_PORT_OUT'
+  | 'CUSTOM_IC';
 
 export type PinRole = 'passive' | 'pos' | 'neg' | 'logic_in' | 'logic_out';
 
@@ -170,4 +187,61 @@ export interface ForumPost {
 
 export interface ForumPostDetail extends ForumPost {
   comments: ForumComment[];
+}
+
+export type TruthSlotRole = 'IN' | 'OUT' | 'NC';
+
+export interface TruthSlotDef {
+  pinId: string;
+  name: string;
+  role: TruthSlotRole;
+}
+
+export interface TruthChipConfig {
+  chipName: string;
+  mode: 'table' | 'expr';
+  slots: TruthSlotDef[];
+  /** Key: binary input vector e.g. '101', Value: binary output vector matching OUT slots e.g. '1001' */
+  rows: Record<string, string>;
+  /** Key: OUT pinId e.g. 's5', Value: boolean expression referencing IN slot names or pinIds */
+  expressions: Record<string, string>;
+}
+
+export interface CustomIcPinSpec {
+  pinId: string;
+  name: string;
+  direction: 'in' | 'out';
+  anchorCompId: string;
+}
+
+export interface CustomIcPayload {
+  version: 1;
+  name: string;
+  codeName: string;
+  description: string;
+  color: string;
+  pins: CustomIcPinSpec[];
+  internalCircuit: CircuitData;
+}
+
+export interface SavedCustomIc {
+  id: number;
+  userId: number;
+  name: string;
+  codeName: string;
+  description: string;
+  color: string;
+  icPayload: CustomIcPayload;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LocalProjectFile {
+  format: 'electrolab-3d-project';
+  version: string;
+  projectTitle: string;
+  description?: string;
+  category?: string;
+  savedAt: string;
+  circuit: CircuitData;
 }

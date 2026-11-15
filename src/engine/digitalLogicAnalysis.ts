@@ -1,5 +1,5 @@
 import type { CircuitComponent, CircuitData, Wire } from '../../shared/types';
-import { world2dTo3d } from './componentCatalog';
+import { getComponentPins, world2dTo3d } from './componentCatalog';
 import { createInitialRuntimeState, solveCircuitStep } from './mnaSolver';
 
 export interface LogicInputVar {
@@ -426,7 +426,7 @@ export function analyzeDigitalCircuit(
   selectedOutputKey?: string | null
 ): DigitalAnalysisResult {
   const allInputs = circuit.components
-    .filter((c) => c.type === 'LOGIC_IN')
+    .filter((c) => c.type === 'LOGIC_IN' || (c.type === 'IC_PORT_IN' && !c.props.__packagedPort))
     .map((c) => ({
       id: c.id,
       varName: String(c.props.varName || c.label || 'X').trim(),
@@ -442,20 +442,23 @@ export function analyzeDigitalCircuit(
     notice = `检测到 ${allInputs.length} 个逻辑输入变量，为保证实时分析速度，真值表仅展示前 5 个变量。`;
   }
 
-  // Gather output probes (LOGIC_OUT first; fallback to combinational gate outputs)
+  // Gather output probes (LOGIC_OUT / IC_PORT_OUT first; fallback to combinational gate / IC outputs)
   const outputs: LogicOutputTarget[] = [];
-  const logicOuts = circuit.components.filter((c) => c.type === 'LOGIC_OUT');
+  const logicOuts = circuit.components.filter(
+    (c) => c.type === 'LOGIC_OUT' || (c.type === 'IC_PORT_OUT' && !c.props.__packagedPort)
+  );
   for (const c of logicOuts) {
+    const pinId = c.type === 'IC_PORT_OUT' ? 'io' : 'in';
     outputs.push({
-      key: `${c.id}:in`,
+      key: `${c.id}:${pinId}`,
       label: String(c.props.outName || c.label),
       componentId: c.id,
-      pinId: 'in',
+      pinId,
     });
   }
   if (outputs.length === 0) {
     for (const c of circuit.components) {
-      if (['AND', 'OR', 'NOT', 'NAND', 'NOR', 'XOR', 'XNOR'].includes(c.type)) {
+      if (['AND', 'OR', 'NOT', 'NAND', 'NOR', 'XOR', 'XNOR', 'MUX_2_1'].includes(c.type)) {
         outputs.push({
           key: `${c.id}:y`,
           label: `${c.label}.Y`,
@@ -473,15 +476,30 @@ export function analyzeDigitalCircuit(
           componentId: c.id,
           pinId: 'cout',
         });
+      } else if (
+        c.type === 'CUSTOM_TRUTH_8' ||
+        c.type === 'CUSTOM_TRUTH_16' ||
+        c.type === 'CUSTOM_IC'
+      ) {
+        for (const p of getComponentPins(c)) {
+          if (p.role === 'logic_out') {
+            outputs.push({
+              key: `${c.id}:${p.id}`,
+              label: `${c.label}.${p.label}`,
+              componentId: c.id,
+              pinId: p.id,
+            });
+          }
+        }
       }
     }
   }
 
   const isSequentialOrFeedback = circuit.components.some(
-    (c) => c.type === 'D_FF' || c.type === 'CLOCK'
+    (c) => c.type === 'D_FF' || c.type === 'JK_FF' || c.type === 'COUNTER_4BIT' || c.type === 'CLOCK'
   );
   if (isSequentialOrFeedback && !notice) {
-    notice = '电路包含时钟或 D 触发器（时序逻辑），真值表反映当前锁存状态下的组合响应。';
+    notice = '电路包含时钟或触发器/计数器（时序逻辑），真值表反映当前锁存状态下的组合响应。';
   }
 
   if (inputs.length === 0 || outputs.length === 0) {

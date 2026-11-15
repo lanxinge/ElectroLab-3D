@@ -9,6 +9,14 @@ function isValidCircuitData(obj: unknown): boolean {
   return Array.isArray(c.components) && Array.isArray(c.wires);
 }
 
+function isValidCustomIcPayload(obj: unknown): boolean {
+  if (!obj || typeof obj !== 'object') return false;
+  const p = obj as Record<string, unknown>;
+  if (typeof p.name !== 'string' || !p.name.trim()) return false;
+  if (!Array.isArray(p.pins) || p.pins.length < 1 || p.pins.length > 24) return false;
+  return isValidCircuitData(p.internalCircuit);
+}
+
 function parseJsonSafe<T>(raw: string, fallback: T): T {
   try {
     return JSON.parse(raw) as T;
@@ -601,6 +609,175 @@ export function createApp(db: DatabaseSync): express.Express {
       .get(postId) as { commentsCount: number };
 
     res.status(201).json({ comment, commentsCount: postRow.commentsCount });
+  });
+
+  // ==================== CLOUD CUSTOM IC ROUTES ====================
+  app.get('/api/custom-ics', requireAuth, (req, res) => {
+    const rows = db
+      .prepare(
+        `SELECT id, user_id AS userId, name, code_name AS codeName, description, color, ic_json,
+                created_at AS createdAt, updated_at AS updatedAt
+         FROM custom_ics
+         WHERE user_id = ?
+         ORDER BY updated_at DESC, id DESC`
+      )
+      .all(req.authUser!.userId) as Array<Record<string, unknown>>;
+
+    const customIcs = rows.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      name: r.name,
+      codeName: r.codeName,
+      description: r.description,
+      color: r.color,
+      icPayload: parseJsonSafe(String(r.ic_json), null),
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }));
+    res.json({ customIcs });
+  });
+
+  app.post('/api/custom-ics', requireAuth, (req, res) => {
+    const { icPayload } = req.body ?? {};
+    if (!isValidCustomIcPayload(icPayload)) {
+      res.status(400).json({ error: '自定义集成芯片封装数据结构无效（至少需要名称、引脚与内部电路）' });
+      return;
+    }
+
+    const cleanName = String(icPayload.name).trim();
+    const cleanCode = String(icPayload.codeName ?? 'U').trim().slice(0, 8) || 'U';
+    const cleanDesc = String(icPayload.description ?? '').trim();
+    const cleanColor = String(icPayload.color ?? '#0284c7').trim() || '#0284c7';
+    const normalizedPayload = {
+      ...icPayload,
+      version: 1,
+      name: cleanName,
+      codeName: cleanCode,
+      description: cleanDesc,
+      color: cleanColor,
+    };
+
+    const info = db
+      .prepare(
+        `INSERT INTO custom_ics (user_id, name, code_name, description, color, ic_json)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        req.authUser!.userId,
+        cleanName,
+        cleanCode,
+        cleanDesc,
+        cleanColor,
+        JSON.stringify(normalizedPayload)
+      );
+
+    const created = db
+      .prepare(
+        `SELECT id, user_id AS userId, name, code_name AS codeName, description, color, ic_json,
+                created_at AS createdAt, updated_at AS updatedAt
+         FROM custom_ics WHERE id = ?`
+      )
+      .get(Number(info.lastInsertRowid)) as Record<string, unknown>;
+
+    res.status(201).json({
+      customIc: {
+        id: created.id,
+        userId: created.userId,
+        name: created.name,
+        codeName: created.codeName,
+        description: created.description,
+        color: created.color,
+        icPayload: parseJsonSafe(String(created.ic_json), normalizedPayload),
+        createdAt: created.createdAt,
+        updatedAt: created.updatedAt,
+      },
+    });
+  });
+
+  app.put('/api/custom-ics/:id', requireAuth, (req, res) => {
+    const icId = Number(req.params.id);
+    const existing = db
+      .prepare('SELECT id, user_id FROM custom_ics WHERE id = ?')
+      .get(icId) as { id: number; user_id: number } | undefined;
+    if (!existing) {
+      res.status(404).json({ error: '未找到该云端集成芯片' });
+      return;
+    }
+    if (existing.user_id !== req.authUser!.userId) {
+      res.status(403).json({ error: '无权修改他人封装的集成芯片' });
+      return;
+    }
+
+    const { icPayload } = req.body ?? {};
+    if (!isValidCustomIcPayload(icPayload)) {
+      res.status(400).json({ error: '自定义集成芯片封装数据结构无效' });
+      return;
+    }
+
+    const cleanName = String(icPayload.name).trim();
+    const cleanCode = String(icPayload.codeName ?? 'U').trim().slice(0, 8) || 'U';
+    const cleanDesc = String(icPayload.description ?? '').trim();
+    const cleanColor = String(icPayload.color ?? '#0284c7').trim() || '#0284c7';
+    const normalizedPayload = {
+      ...icPayload,
+      version: 1,
+      name: cleanName,
+      codeName: cleanCode,
+      description: cleanDesc,
+      color: cleanColor,
+    };
+
+    db.prepare(
+      `UPDATE custom_ics
+       SET name = ?, code_name = ?, description = ?, color = ?, ic_json = ?, updated_at = datetime('now')
+       WHERE id = ?`
+    ).run(
+      cleanName,
+      cleanCode,
+      cleanDesc,
+      cleanColor,
+      JSON.stringify(normalizedPayload),
+      icId
+    );
+
+    const updated = db
+      .prepare(
+        `SELECT id, user_id AS userId, name, code_name AS codeName, description, color, ic_json,
+                created_at AS createdAt, updated_at AS updatedAt
+         FROM custom_ics WHERE id = ?`
+      )
+      .get(icId) as Record<string, unknown>;
+
+    res.json({
+      customIc: {
+        id: updated.id,
+        userId: updated.userId,
+        name: updated.name,
+        codeName: updated.codeName,
+        description: updated.description,
+        color: updated.color,
+        icPayload: parseJsonSafe(String(updated.ic_json), normalizedPayload),
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      },
+    });
+  });
+
+  app.delete('/api/custom-ics/:id', requireAuth, (req, res) => {
+    const icId = Number(req.params.id);
+    const existing = db
+      .prepare('SELECT id, user_id FROM custom_ics WHERE id = ?')
+      .get(icId) as { id: number; user_id: number } | undefined;
+    if (!existing) {
+      res.status(404).json({ error: '未找到该云端集成芯片' });
+      return;
+    }
+    if (existing.user_id !== req.authUser!.userId) {
+      res.status(403).json({ error: '无权删除他人封装的集成芯片' });
+      return;
+    }
+    db.prepare('DELETE FROM custom_ics WHERE id = ?').run(icId);
+    res.json({ ok: true });
   });
 
   return app;

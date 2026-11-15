@@ -4,6 +4,12 @@ import type {
   ComponentType,
   PinDefinition,
 } from '../../shared/types';
+import {
+  buildDipPinLayout,
+  getCustomIcPins,
+  getDefaultTruthChipConfig,
+  getTruthChipPins,
+} from './customIcEngine';
 
 export interface ComponentSpec {
   type: ComponentType;
@@ -23,6 +29,7 @@ export const CATEGORY_LABELS: Record<ComponentCategory, string> = {
   semiconductor: '半导体与运放',
   instrument: '测量仪表',
   digital: '数字逻辑器件',
+  custom: '特殊与自定义芯片',
 };
 
 export const WIRE_COLORS = [
@@ -470,7 +477,258 @@ export const COMPONENT_CATALOG: Record<ComponentType, ComponentSpec> = {
       { id: 'qn', label: "Q'", role: 'logic_out', offset3d: [0.9, 0.12, 0.35], offset2d: { x: 45, y: 15 } },
     ],
   },
+  MUX_2_1: {
+    type: 'MUX_2_1',
+    category: 'digital',
+    name: '二选一数据选择器 (MUX)',
+    shortName: 'MUX2选1',
+    labelPrefix: 'MUX',
+    description: 'SEL=0 选通 D0，SEL=1 选通 D1 输出至 Y',
+    defaultProps: {},
+    maxPower: 1.5,
+    pins: [
+      { id: 'd0', label: 'D0', role: 'logic_in', offset3d: [-0.95, 0.12, -0.42], offset2d: { x: -45, y: -20 } },
+      { id: 'd1', label: 'D1', role: 'logic_in', offset3d: [-0.95, 0.12, 0], offset2d: { x: -45, y: 0 } },
+      { id: 'sel', label: 'SEL', role: 'logic_in', offset3d: [-0.95, 0.12, 0.42], offset2d: { x: -45, y: 20 } },
+      { id: 'y', label: 'Y', role: 'logic_out', offset3d: [0.95, 0.12, 0], offset2d: { x: 45, y: 0 } },
+    ],
+  },
+  JK_FF: {
+    type: 'JK_FF',
+    category: 'digital',
+    name: 'JK 触发器 (上升沿)',
+    shortName: 'JK触发器',
+    labelPrefix: 'JK',
+    description: 'J=K=1 在 CLK 上升沿翻转，10 置位，01 复位，00 保持',
+    defaultProps: {},
+    maxPower: 1.5,
+    pins: [
+      { id: 'j', label: 'J', role: 'logic_in', offset3d: [-0.95, 0.12, -0.42], offset2d: { x: -45, y: -20 } },
+      { id: 'clk', label: 'CLK', role: 'logic_in', offset3d: [-0.95, 0.12, 0], offset2d: { x: -45, y: 0 } },
+      { id: 'k', label: 'K', role: 'logic_in', offset3d: [-0.95, 0.12, 0.42], offset2d: { x: -45, y: 20 } },
+      { id: 'q', label: 'Q', role: 'logic_out', offset3d: [0.95, 0.12, -0.35], offset2d: { x: 45, y: -15 } },
+      { id: 'qn', label: "Q'", role: 'logic_out', offset3d: [0.95, 0.12, 0.35], offset2d: { x: 45, y: 15 } },
+    ],
+  },
+  COUNTER_4BIT: {
+    type: 'COUNTER_4BIT',
+    category: 'digital',
+    name: '4位二进制计数器',
+    shortName: '4位计数器',
+    labelPrefix: 'CNT',
+    description: 'CLK 上升沿递增 (0000~1111)，RST 高电平清零',
+    defaultProps: {},
+    maxPower: 2,
+    pins: [
+      { id: 'clk', label: 'CLK', role: 'logic_in', offset3d: [-1.05, 0.12, -0.35], offset2d: { x: -50, y: -15 } },
+      { id: 'rst', label: 'RST', role: 'logic_in', offset3d: [-1.05, 0.12, 0.35], offset2d: { x: -50, y: 15 } },
+      { id: 'q3', label: 'Q3', role: 'logic_out', offset3d: [1.05, 0.12, -0.54], offset2d: { x: 50, y: -30 } },
+      { id: 'q2', label: 'Q2', role: 'logic_out', offset3d: [1.05, 0.12, -0.18], offset2d: { x: 50, y: -10 } },
+      { id: 'q1', label: 'Q1', role: 'logic_out', offset3d: [1.05, 0.12, 0.18], offset2d: { x: 50, y: 10 } },
+      { id: 'q0', label: 'Q0', role: 'logic_out', offset3d: [1.05, 0.12, 0.54], offset2d: { x: 50, y: 30 } },
+    ],
+  },
+  ZENER_DIODE: {
+    type: 'ZENER_DIODE',
+    category: 'semiconductor',
+    name: '齐纳稳压二极管',
+    shortName: '稳压管',
+    labelPrefix: 'DZ',
+    description: '反向击穿区具有恒压特性 Vz，广泛用于直流基准稳压与限幅',
+    defaultProps: { vz: 5.1 },
+    maxPower: 2.0,
+    pins: [
+      { id: 'a', label: 'A(+)', role: 'pos', offset3d: [-0.9, 0.12, 0], offset2d: { x: -40, y: 0 } },
+      { id: 'k', label: 'K(-)', role: 'neg', offset3d: [0.9, 0.12, 0], offset2d: { x: 40, y: 0 } },
+    ],
+  },
+  NMOS: {
+    type: 'NMOS',
+    category: 'semiconductor',
+    name: 'N沟道增强型 MOSFET',
+    shortName: 'NMOS管',
+    labelPrefix: 'M',
+    description: '电压控制型场效应管：Vgs > Vth 导通（栅极输入近乎零电流）',
+    defaultProps: { vth: 2.0, kp: 0.08 },
+    maxPower: 8.0,
+    pins: [
+      { id: 'g', label: 'G', role: 'passive', offset3d: [-0.9, 0.12, 0], offset2d: { x: -40, y: 0 } },
+      { id: 'd', label: 'D', role: 'passive', offset3d: [0.6, 0.12, -0.45], offset2d: { x: 30, y: -25 } },
+      { id: 's', label: 'S', role: 'passive', offset3d: [0.6, 0.12, 0.45], offset2d: { x: 30, y: 25 } },
+    ],
+  },
+  TRANSFORMER: {
+    type: 'TRANSFORMER',
+    category: 'passive',
+    name: '理想耦合变压器',
+    shortName: '变压器',
+    labelPrefix: 'T',
+    description: '原副边按变比 N = Ns/Np 磁耦合（Vs = N·Vp，Ip = -N·Is）',
+    defaultProps: { ratio: 2.0 },
+    maxPower: 50,
+    pins: [
+      { id: 'p1', label: 'P1*', role: 'pos', offset3d: [-1.0, 0.12, -0.35], offset2d: { x: -45, y: -20 } },
+      { id: 'p2', label: 'P2', role: 'neg', offset3d: [-1.0, 0.12, 0.35], offset2d: { x: -45, y: 20 } },
+      { id: 's1', label: 'S1*', role: 'pos', offset3d: [1.0, 0.12, -0.35], offset2d: { x: 45, y: -20 } },
+      { id: 's2', label: 'S2', role: 'neg', offset3d: [1.0, 0.12, 0.35], offset2d: { x: 45, y: 20 } },
+    ],
+  },
+  LAMP: {
+    type: 'LAMP',
+    category: 'passive',
+    name: '白炽指示灯泡',
+    shortName: '灯泡',
+    labelPrefix: 'LP',
+    description: '钨丝热辐射负载，发光亮度随实际功耗与额定功率比值连续变化',
+    defaultProps: { ratedVoltage: 5, ratedPower: 1.5 },
+    maxPower: 3.75,
+    pins: [
+      { id: 'p1', label: 'L1', role: 'passive', offset3d: [-0.85, 0.12, 0], offset2d: { x: -40, y: 0 } },
+      { id: 'p2', label: 'L2', role: 'passive', offset3d: [0.85, 0.12, 0], offset2d: { x: 40, y: 0 } },
+    ],
+  },
+  FUSE: {
+    type: 'FUSE',
+    category: 'passive',
+    name: '可复位保险丝',
+    shortName: '保险丝',
+    labelPrefix: 'F',
+    description: '电流超过熔断阈值时自动切断回路；点击元件或属性面板可一键复位',
+    defaultProps: { tripCurrent: 0.5, blown: false },
+    maxPower: 2.0,
+    pins: [
+      { id: 'p1', label: '1', role: 'passive', offset3d: [-0.9, 0.12, 0], offset2d: { x: -40, y: 0 } },
+      { id: 'p2', label: '2', role: 'passive', offset3d: [0.9, 0.12, 0], offset2d: { x: 40, y: 0 } },
+    ],
+  },
+  INF_SOURCE: {
+    type: 'INF_SOURCE',
+    category: 'custom',
+    name: '无限理想电源 (无上限)',
+    shortName: '无限电源',
+    labelPrefix: 'V∞',
+    description: '无功率与过载限制的超级理想电压源，支持直流/交流及任意自定义高压输出',
+    defaultProps: { voltage: 12, frequency: 2, waveform: 'dc' },
+    maxPower: Number.POSITIVE_INFINITY,
+    pins: [
+      { id: 'pos', label: '+', role: 'pos', offset3d: [0.95, 0.12, 0], offset2d: { x: 40, y: 0 } },
+      { id: 'neg', label: '-', role: 'neg', offset3d: [-0.95, 0.12, 0], offset2d: { x: -40, y: 0 } },
+    ],
+  },
+  INF_RESISTOR: {
+    type: 'INF_RESISTOR',
+    category: 'custom',
+    name: '无限电阻 / 理想断路',
+    shortName: '无限电阻',
+    labelPrefix: 'R∞',
+    description: '默认理想无穷大阻抗 (R=∞, G=0, I=0)，永不烧毁；也可切为超高自定义阻值',
+    defaultProps: { idealInfinite: true, resistance: 1e12 },
+    maxPower: Number.POSITIVE_INFINITY,
+    pins: [
+      { id: 'p1', label: '1', role: 'passive', offset3d: [-0.95, 0.12, 0], offset2d: { x: -40, y: 0 } },
+      { id: 'p2', label: '2', role: 'passive', offset3d: [0.95, 0.12, 0], offset2d: { x: 40, y: 0 } },
+    ],
+  },
+  CUSTOM_TRUTH_8: {
+    type: 'CUSTOM_TRUTH_8',
+    category: 'custom',
+    name: '8槽自定义真值芯片',
+    shortName: '8槽真值芯',
+    labelPrefix: 'LUT8',
+    description: '8个可自由命名与定义 IN/OUT/NC 方向的引脚，支持真值表编辑与布尔表达式编程',
+    defaultProps: {
+      truthConfigJson: JSON.stringify(getDefaultTruthChipConfig(8)),
+    },
+    maxPower: 2.0,
+    pins: buildDipPinLayout(
+      getDefaultTruthChipConfig(8).slots.map((s) => ({
+        id: s.pinId,
+        label: s.name,
+        role: s.role === 'IN' ? 'logic_in' : s.role === 'OUT' ? 'logic_out' : 'passive',
+      }))
+    ),
+  },
+  CUSTOM_TRUTH_16: {
+    type: 'CUSTOM_TRUTH_16',
+    category: 'custom',
+    name: '16槽自定义真值芯片',
+    shortName: '16槽真值芯',
+    labelPrefix: 'LUT16',
+    description: '16个可自由配置的输入/输出引脚槽位，支持大规模真值表查找与多输出逻辑公式',
+    defaultProps: {
+      truthConfigJson: JSON.stringify(getDefaultTruthChipConfig(16)),
+    },
+    maxPower: 3.0,
+    pins: buildDipPinLayout(
+      getDefaultTruthChipConfig(16).slots.map((s) => ({
+        id: s.pinId,
+        label: s.name,
+        role: s.role === 'IN' ? 'logic_in' : s.role === 'OUT' ? 'logic_out' : 'passive',
+      }))
+    ),
+  },
+  IC_PORT_IN: {
+    type: 'IC_PORT_IN',
+    category: 'custom',
+    name: 'IC 封装输入端口',
+    shortName: 'IC输入端',
+    labelPrefix: 'IN_P',
+    description: '用于标记待封装子电路的外部输入引脚（顶层调试时可点击切换 0/1 测试电平）',
+    defaultProps: { state: 0 },
+    maxPower: 2.0,
+    pins: [
+      { id: 'io', label: 'IO', role: 'logic_out', offset3d: [0.75, 0.12, 0], offset2d: { x: 35, y: 0 } },
+    ],
+  },
+  IC_PORT_OUT: {
+    type: 'IC_PORT_OUT',
+    category: 'custom',
+    name: 'IC 封装输出端口',
+    shortName: 'IC输出端',
+    labelPrefix: 'OUT_P',
+    description: '用于标记待封装子电路的外部输出引脚，封装后自动映射为集成芯片输出管脚',
+    defaultProps: {},
+    maxPower: 2.0,
+    pins: [
+      { id: 'io', label: 'IO', role: 'logic_in', offset3d: [-0.75, 0.12, 0], offset2d: { x: -35, y: 0 } },
+    ],
+  },
+  CUSTOM_IC: {
+    type: 'CUSTOM_IC',
+    category: 'custom',
+    name: '自定义封装集成芯片',
+    shortName: '集成芯片',
+    labelPrefix: 'U',
+    description: '由工作台电路一键封装而成的层次化集成芯片模块，支持保存至云端账号与嵌套复用',
+    defaultProps: {},
+    maxPower: 10.0,
+    pins: [
+      { id: 'p1', label: 'IN1', role: 'logic_in', offset3d: [-0.95, 0.12, -0.22], offset2d: { x: -48, y: -14 } },
+      { id: 'p2', label: 'IN2', role: 'logic_in', offset3d: [-0.95, 0.12, 0.22], offset2d: { x: -48, y: 14 } },
+      { id: 'p3', label: 'OUT', role: 'logic_out', offset3d: [0.95, 0.12, 0], offset2d: { x: 48, y: 0 } },
+    ],
+  },
 };
+
+export function getComponentPins(comp: CircuitComponent): PinDefinition[] {
+  if (comp.type === 'CUSTOM_TRUTH_8' || comp.type === 'CUSTOM_TRUTH_16') {
+    return getTruthChipPins(comp);
+  }
+  if (comp.type === 'CUSTOM_IC') {
+    return getCustomIcPins(comp);
+  }
+  return COMPONENT_CATALOG[comp.type]?.pins ?? [];
+}
+
+export function getComponentMeshSignature(comp: CircuitComponent): string {
+  if (comp.type === 'CUSTOM_TRUTH_8' || comp.type === 'CUSTOM_TRUTH_16') {
+    return `${comp.type}|${comp.label}|${String(comp.props.truthConfigJson ?? '')}`;
+  }
+  if (comp.type === 'CUSTOM_IC') {
+    return `${comp.type}|${comp.label}|${String(comp.props.icJson ?? '')}`;
+  }
+  return `${comp.type}|${comp.label}`;
+}
 
 export function world3dTo2d(pos3d: [number, number, number]): { x: number; y: number } {
   return {
@@ -491,8 +749,8 @@ export function getPinWorld3D(
   comp: CircuitComponent,
   pinId: string
 ): [number, number, number] {
-  const spec = COMPONENT_CATALOG[comp.type];
-  const pin = spec.pins.find((p) => p.id === pinId);
+  const pins = getComponentPins(comp);
+  const pin = pins.find((p) => p.id === pinId);
   if (!pin) return [...comp.pos3d];
   const [ox, oy, oz] = pin.offset3d;
   const c = Math.cos(comp.rotationY);
@@ -506,8 +764,8 @@ export function getPinWorld2D(
   comp: CircuitComponent,
   pinId: string
 ): { x: number; y: number } {
-  const spec = COMPONENT_CATALOG[comp.type];
-  const pin = spec.pins.find((p) => p.id === pinId);
+  const pins = getComponentPins(comp);
+  const pin = pins.find((p) => p.id === pinId);
   if (!pin) return { ...comp.pos2d };
   const rad = (comp.rot2d * Math.PI) / 180;
   const c = Math.cos(rad);

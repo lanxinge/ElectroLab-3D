@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   BookOpen,
+  Check,
   Cpu,
+  Download,
   FolderOpen,
+  FolderUp,
+  LayoutGrid,
   LogIn,
   LogOut,
   MessageSquareText,
+  PackagePlus,
   Pause,
   Play,
   RotateCcw,
@@ -17,6 +22,8 @@ import {
 import { CIRCUIT_PRESETS } from '../presets/circuitPresets';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircuitStore, type SidebarMode } from '../store/useCircuitStore';
+import { useUIStore } from '../store/useUIStore';
+import { downloadProjectFile, parseProjectFile } from '../utils/projectFileIO';
 
 export const HeaderBar: React.FC<{
   activeView: 'simulator' | 'forum';
@@ -26,8 +33,13 @@ export const HeaderBar: React.FC<{
   onOpenProjects: () => void;
 }> = ({ activeView, onChangeView, onOpenAuth, onOpenPublish, onOpenProjects }) => {
   const [presetsOpen, setPresetsOpen] = useState(false);
+  const [panelMenuOpen, setPanelMenuOpen] = useState(false);
+  const [fileNotice, setFileNotice] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const projectTitle = useCircuitStore((s) => s.projectTitle);
+  const components = useCircuitStore((s) => s.components);
+  const wires = useCircuitStore((s) => s.wires);
   const isRunning = useCircuitStore((s) => s.isRunning);
   const simTime = useCircuitStore((s) => s.simTime);
   const sidebarMode = useCircuitStore((s) => s.sidebarMode);
@@ -40,8 +52,46 @@ export const HeaderBar: React.FC<{
   const loadCircuit = useCircuitStore((s) => s.loadCircuit);
   const setSidebarMode = useCircuitStore((s) => s.setSidebarMode);
 
+  const layoutMode = useUIStore((s) => s.layoutMode);
+  const setLayoutMode = useUIStore((s) => s.setLayoutMode);
+  const paletteOpen = useUIStore((s) => s.paletteOpen);
+  const togglePalette = useUIStore((s) => s.togglePalette);
+  const inspectorOpen = useUIStore((s) => s.inspectorOpen);
+  const toggleInspector = useUIStore((s) => s.toggleInspector);
+  const schematicOpen = useUIStore((s) => s.schematicOpen);
+  const toggleSchematic = useUIStore((s) => s.toggleSchematic);
+  const analysisOpen = useUIStore((s) => s.analysisOpen);
+  const toggleAnalysis = useUIStore((s) => s.toggleAnalysis);
+  const collapseAllPanels = useUIStore((s) => s.collapseAllPanels);
+  const setPackageIcModalOpen = useUIStore((s) => s.setPackageIcModalOpen);
+
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+
+  const showTempNotice = (msg: string) => {
+    setFileNotice(msg);
+    setTimeout(() => setFileNotice(null), 3200);
+  };
+
+  const handleSaveLocalFile = () => {
+    const saved = downloadProjectFile(projectTitle, { components, wires });
+    showTempNotice(`已导出 ${saved.projectTitle}.elab.json`);
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = parseProjectFile(text);
+      loadCircuit(parsed.circuit, parsed.title, null);
+      if (activeView !== 'simulator') onChangeView('simulator');
+      showTempNotice(`已载入工程: ${parsed.title}`);
+    } catch (err) {
+      showTempNotice(err instanceof Error ? err.message : '读取本地工程文件失败');
+    }
+  };
 
   return (
     <header className="h-12 px-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 z-30 whitespace-nowrap">
@@ -103,7 +153,10 @@ export const HeaderBar: React.FC<{
               {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
               {isRunning ? '运行中' : '已暂停'}
             </button>
-            <span className="px-1.5 font-mono text-[11px] text-slate-400 hidden xl:inline">
+            <span
+              data-testid="sim-time-readout"
+              className="px-1.5 font-mono text-[11px] text-slate-400 inline"
+            >
               t={simTime.toFixed(1)}s
             </span>
             <button
@@ -168,25 +221,170 @@ export const HeaderBar: React.FC<{
           </button>
 
           {/* Layout switcher */}
-          <div className="hidden lg:flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-[11px]">
-            {(
-              [
-                ['split', '3D+2D分屏'],
-                ['3d-only', '纯3D'],
-                ['2d-only', '纯2D'],
-              ] as Array<[SidebarMode, string]>
-            ).map(([m, label]) => (
-              <button
-                key={m}
-                onClick={() => setSidebarMode(m)}
-                className={`px-2 py-0.5 rounded ${
-                  sidebarMode === m ? 'bg-slate-800 text-sky-300 font-semibold' : 'text-slate-400'
-                }`}
+          {layoutMode === 'split' && (
+            <div className="hidden lg:flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-[11px]">
+              {(
+                [
+                  ['split', '3D+2D分屏'],
+                  ['3d-only', '纯3D'],
+                  ['2d-only', '纯2D'],
+                ] as Array<[SidebarMode, string]>
+              ).map(([m, label]) => (
+                <button
+                  key={m}
+                  onClick={() => setSidebarMode(m)}
+                  className={`px-2 py-0.5 rounded ${
+                    sidebarMode === m ? 'bg-slate-800 text-sky-300 font-semibold' : 'text-slate-400'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Panel Menu Dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              data-testid="panel-menu-btn"
+              onClick={() => setPanelMenuOpen((o) => !o)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-100 border border-slate-700 whitespace-nowrap"
+            >
+              <LayoutGrid className="w-3.5 h-3.5 text-cyan-400" />
+              <span>面板菜单</span>
+            </button>
+            {panelMenuOpen && (
+              <div
+                data-testid="panel-menu-dropdown"
+                onMouseLeave={() => setPanelMenuOpen(false)}
+                className="absolute right-0 mt-1.5 w-60 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 z-50 space-y-1.5 text-xs"
               >
-                {label}
-              </button>
-            ))}
+                <div className="text-[10px] font-semibold text-slate-400 px-1.5">信息面板显隐</div>
+                {[
+                  { label: '元件库面板', open: paletteOpen, toggle: togglePalette, testid: 'menu-toggle-palette' },
+                  { label: '属性与实时探针', open: inspectorOpen, toggle: toggleInspector, testid: 'menu-toggle-inspector' },
+                  { label: '2D 经典电路图', open: schematicOpen, toggle: toggleSchematic, testid: 'menu-toggle-schematic' },
+                  { label: '示波器 / 真值表 / 卡诺图', open: analysisOpen, toggle: toggleAnalysis, testid: 'menu-toggle-analysis' },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    data-testid={item.testid}
+                    onClick={item.toggle}
+                    className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 transition"
+                  >
+                    <span>{item.label}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                        item.open ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800 text-slate-500'
+                      }`}
+                    >
+                      {item.open ? '已开' : '收起'}
+                    </span>
+                  </button>
+                ))}
+                <div className="border-t border-slate-800 pt-1.5 space-y-1">
+                  <div className="text-[10px] font-semibold text-slate-400 px-1.5">工作台排布模式</div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      data-testid="menu-mode-floating"
+                      onClick={() => {
+                        setLayoutMode('floating');
+                        setPanelMenuOpen(false);
+                      }}
+                      className={`flex items-center justify-center gap-1 py-1 rounded border text-[11px] ${
+                        layoutMode === 'floating'
+                          ? 'bg-sky-500/20 border-sky-400/60 text-sky-200 font-semibold'
+                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {layoutMode === 'floating' && <Check className="w-3 h-3" />}
+                      悬浮小球
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="menu-mode-split"
+                      onClick={() => {
+                        setLayoutMode('split');
+                        setPanelMenuOpen(false);
+                      }}
+                      className={`flex items-center justify-center gap-1 py-1 rounded border text-[11px] ${
+                        layoutMode === 'split'
+                          ? 'bg-sky-500/20 border-sky-400/60 text-sky-200 font-semibold'
+                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {layoutMode === 'split' && <Check className="w-3 h-3" />}
+                      经典分栏
+                    </button>
+                  </div>
+                  {layoutMode === 'floating' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        collapseAllPanels();
+                        setPanelMenuOpen(false);
+                      }}
+                      className="w-full py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px]"
+                    >
+                      一键收起所有面板
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Local Save / Load & Package IC */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,.elab.json"
+            data-testid="load-local-file-input"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <button
+            type="button"
+            data-testid="save-local-file-btn"
+            onClick={handleSaveLocalFile}
+            title="导出本地电路工程文件 (.elab.json)"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden xl:inline">导出</span>
+          </button>
+          <button
+            type="button"
+            data-testid="load-local-file-btn"
+            onClick={() => fileInputRef.current?.click()}
+            title="导入本地电路工程文件 (.elab.json / .json)"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs"
+          >
+            <FolderUp className="w-3.5 h-3.5 text-sky-400" />
+            <span className="hidden xl:inline">导入</span>
+          </button>
+          <button
+            type="button"
+            data-testid="header-package-ic-btn"
+            onClick={() => setPackageIcModalOpen(true)}
+            title="打包当前电路为可云端复用的集成电路芯片"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-fuchsia-600/25 hover:bg-fuchsia-600/40 text-fuchsia-200 border border-fuchsia-500/40 text-xs"
+          >
+            <PackagePlus className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">打包IC</span>
+          </button>
+        </div>
+      )}
+
+      {fileNotice && (
+        <div
+          data-testid="header-file-notice"
+          className="fixed top-14 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded-lg bg-slate-900 border border-sky-500/60 text-sky-200 text-xs shadow-xl"
+        >
+          {fileNotice}
         </div>
       )}
 

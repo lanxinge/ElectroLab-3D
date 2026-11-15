@@ -50,6 +50,12 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-2',
         title: '一键切换逻辑激励',
         narration: '拨动控制开关把动触臂从 0V 地线切向 +5V 电源轨，输出端灯柱立刻亮起高电平绿光，向前方逻辑门发送 1 信号。',
+        renderNarration: (p) => {
+          const st = (p.state ?? 1) >= 0.5 ? 1 : 0;
+          return st === 1
+            ? '当前开关拨向 +5V 电源轨：输出 LOGIC 1（高电平），绿色电平柱全额亮起，向后级逻辑门送出真值 1。'
+            : '当前开关拨向 0V 地线：输出 LOGIC 0（低电平），输出电平柱熄灭归零，向后级送出真值 0。';
+        },
         camera: { position: [0.3, 2.2, 4.1], target: [0, 0.55, 0] },
       },
       {
@@ -99,6 +105,10 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-3',
         title: '调高频率，加速逻辑世界流转',
         narration: '推动频率滑块加快节拍，脉冲方块列间距缩短，下方状态指示灯随之加速闪烁。',
+        renderNarration: (p) => {
+          const f = p.freq ?? 1.0;
+          return `当前节拍频率 f = ${f.toFixed(1)} Hz（周期 T = ${(1 / Math.max(0.1, f)).toFixed(2)} s）：每秒产生 ${f.toFixed(1)} 次 0→1 上升沿，驱动同步时序逻辑向前步进。`;
+        },
         camera: { position: [-3.3, 2.7, 3.6], target: [0, 0.6, 0] },
       },
     ],
@@ -135,6 +145,11 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-2',
         title: '抗噪容限的重要性',
         narration: '把输入调在 3.5V~5V 或 0V~1.5V 之间，灯光都稳定不变——正是这种电压容差让数字电路抗干扰能力远超模拟电路。',
+        renderNarration: (p) => {
+          const vin = p.vin ?? 4.5;
+          const logic = vin >= 2.5 ? 1 : 0;
+          return `当前被测节点电位 V_in = ${vin.toFixed(2)} V（${vin >= 2.5 ? '高于' : '低于'} 2.5V 判决门槛），逻辑探针输出 Logic ${logic}（${logic === 1 ? '高电平亮灯' : '低电平熄灭'}）。`;
+        },
         camera: { position: [0.2, 2.2, 4.2], target: [0, 0.65, 0] },
       },
       {
@@ -177,6 +192,12 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-2',
         title: '8-4-2-1 权值与七段译码魔法',
         narration: '拖动数值滑块，观察左侧 4 根二进制输入灯柱如何按 8-4-2-1 亮灭组合，驱动右侧 7 条独立 LED 灯段精准拼出对应字符！',
+        renderNarration: (p) => {
+          const v = Math.max(0, Math.min(15, Math.round(p.hexVal ?? 10)));
+          const bin = v.toString(2).padStart(4, '0');
+          const hex = v.toString(16).toUpperCase();
+          return `当前输入二进制 ${bin}₂（十进制 ${v}，8-4-2-1 加权求和）：译码驱动器对应点亮十六进制字符 “${hex}”。`;
+        },
         camera: { position: [0.2, 2.2, 4.1], target: [0.1, 0.7, 0] },
       },
       {
@@ -194,6 +215,7 @@ export const PONDER_DIGITAL_SPECS: Record<
     englishTitle: '2-Input AND Logic Gate',
     badge: '基本逻辑门 · 逻辑乘',
     summary: '只有当所有输入端全部为 1 时，输出 Y 才为 1；只要存在任意一个 0，输出必为 0。',
+    analogyNote: '舞台中两座串联吊桥为【开关串联原理类比】，对应 CMOS 与门内部两只串联 MOS 管同时导通的逻辑规则。',
     formulas: [
       { expr: 'Y = A · B  (逻辑与 / 逻辑乘)', note: '0·0=0, 0·1=0, 1·0=0, 1·1=1' },
       { expr: '特性：A · 1 = A ,  A · 0 = 0', note: '常用作信号“使能/门控”开关：B=1 放行 A，B=0 封锁 A' },
@@ -207,8 +229,8 @@ export const PONDER_DIGITAL_SPECS: Record<
       { key: 'b', label: '输入端 B', kind: 'toggle', defaultValue: 1, trueLabel: 'B = 1', falseLabel: 'B = 0' },
     ],
     callouts: [
-      { id: 'swA', title: '串联前级开关 A', detail: 'A=1 时合上第一座桥梁', worldPos: [-0.9, 0.75, -0.55], color: '#fbbf24' },
-      { id: 'swB', title: '串联后级开关 B', detail: 'B=1 时合上第二座桥梁', worldPos: [0.05, 0.75, 0.55], color: '#38bdf8' },
+      { id: 'swA', title: '串联前级开关 A [类比]', detail: 'A=1 时合上第一座机械吊桥', worldPos: [-0.9, 0.75, -0.55], color: '#fbbf24', isAnalogy: true },
+      { id: 'swB', title: '串联后级开关 B [类比]', detail: 'B=1 时合上第二座机械吊桥', worldPos: [0.05, 0.75, 0.55], color: '#38bdf8', isAnalogy: true },
       { id: 'outY', title: '输出 Y = A · B', detail: '必须双桥同时闭合才点亮！', worldPos: [1.3, 0.8, 0], color: '#34d399' },
     ],
     steps: [
@@ -216,12 +238,26 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-1',
         title: '双桥串联，缺一不可',
         narration: '与门的机械直观模型就是两座首尾串联的吊桥 A 与 B：能量只有先后跨越两座闭合的桥面才能抵达输出灯柱 Y。',
+        renderNarration: (p) => {
+          const a = (p.a ?? 1) >= 0.5 ? 1 : 0;
+          const b = (p.b ?? 1) >= 0.5 ? 1 : 0;
+          const y = a & b;
+          return `与门可类比为两座串联吊桥：当前 A=${a}, B=${b}，输出 Y = A·B = ${y}（${y ? '两桥全通，输出亮 1' : '至少一桥断开，输出为 0'}）。`;
+        },
         camera: { position: [4.1, 3.1, 4.2], target: [0, 0.55, 0] },
       },
       {
         id: 'step-2',
         title: '亲自拨动 A 与 B 验证全 1 出 1',
         narration: '尝试只把 A 或 B 其中之一设为 0，虽然另一个依然为 1，但电流在断桥处被彻底拦住，输出立刻熄灭（有 0 出 0）！',
+        renderNarration: (p) => {
+          const a = (p.a ?? 1) >= 0.5 ? 1 : 0;
+          const b = (p.b ?? 1) >= 0.5 ? 1 : 0;
+          const y = a & b;
+          return y === 1
+            ? `当前 A=1, B=1：两路条件同时满足，输出端 Y 亮起 1！试着把 A 或 B 拨回 0，可见“有 0 出 0”。`
+            : `当前 A=${a}, B=${b}（存在 0）：串联回路在断桥处被拦住，输出熄灭 Y=0（有 0 出 0）。`;
+        },
         camera: { position: [0.3, 2.3, 4.1], target: [0, 0.55, 0] },
       },
       {
@@ -239,6 +275,7 @@ export const PONDER_DIGITAL_SPECS: Record<
     englishTitle: '2-Input OR Logic Gate',
     badge: '基本逻辑门 · 逻辑加',
     summary: '只要输入端中至少有一个为 1，输出 Y 就为 1；唯有所有输入全为 0 时输出才为 0。',
+    analogyNote: '舞台中双并行桥路为【并联通路原理类比】，体现布尔“逻辑加（有 1 出 1）”的本质。',
     formulas: [
       { expr: 'Y = A + B  (逻辑或 / 逻辑加)', note: '0+0=0, 0+1=1, 1+0=1, 1+1=1' },
       { expr: '特性：A + 0 = A ,  A + 1 = 1', note: '注意逻辑 1+1=1，而不是二进制算术加法 2' },
@@ -252,8 +289,8 @@ export const PONDER_DIGITAL_SPECS: Record<
       { key: 'b', label: '输入端 B', kind: 'toggle', defaultValue: 0, trueLabel: 'B = 1', falseLabel: 'B = 0' },
     ],
     callouts: [
-      { id: 'laneA', title: '并行通道 A', detail: '上支路独立通行桥', worldPos: [-0.2, 0.65, -0.75], color: '#fbbf24' },
-      { id: 'laneB', title: '并行通道 B', detail: '下支路独立通行桥', worldPos: [-0.2, 0.65, 0.75], color: '#38bdf8' },
+      { id: 'laneA', title: '并行通道 A [类比]', detail: '上支路独立通行桥', worldPos: [-0.2, 0.65, -0.75], color: '#fbbf24', isAnalogy: true },
+      { id: 'laneB', title: '并行通道 B [类比]', detail: '下支路独立通行桥', worldPos: [-0.2, 0.65, 0.75], color: '#38bdf8', isAnalogy: true },
       { id: 'outY', title: '汇合输出 Y = A + B', detail: '任一通道畅通即可点亮', worldPos: [1.3, 0.85, 0], color: '#34d399' },
     ],
     steps: [
@@ -261,12 +298,26 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-1',
         title: '两条并行双通道，“有 1 出 1”',
         narration: '或门等效于两条并排架设的通道 A 和 B，最后共同汇入输出节点 Y。只要其中任意一路打通，信号就能顺利到达终点。',
+        renderNarration: (p) => {
+          const a = (p.a ?? 1) >= 0.5 ? 1 : 0;
+          const b = (p.b ?? 0) >= 0.5 ? 1 : 0;
+          const y = a | b;
+          return `或门两条并行通道 A=${a}, B=${b}：此时逻辑输出 Y = A + B = ${y}（${y ? '至少一路为 1，汇合输出高电平 1' : '两路全 0，输出熄灭归 0'}）。`;
+        },
         camera: { position: [4.1, 3.2, 4.2], target: [0, 0.55, 0] },
       },
       {
         id: 'step-2',
         title: '为什么 1 + 1 在逻辑里依然等于 1？',
         narration: '同时打开 A=1 和 B=1，两条路一齐向输出灯供电，灯并不会变成“2”，它的状态仅仅是保持高电平亮起状态（逻辑 1）。',
+        renderNarration: (p) => {
+          const a = (p.a ?? 1) >= 0.5 ? 1 : 0;
+          const b = (p.b ?? 0) >= 0.5 ? 1 : 0;
+          const y = a | b;
+          if (a === 1 && b === 1) return '当前 A=1、B=1：两路同时向输出供电，但数字逻辑只区分真/假，1 + 1 依然输出逻辑 1！';
+          if (y === 1) return `当前 A=${a}, B=${b}：仅有一路畅通也足以将输出点亮为 Y=1（有 1 出 1）。`;
+          return '当前 A=0, B=0：两条并行支路同时关闭，输出彻底熄灭（Y=0）。';
+        },
         camera: { position: [0.3, 2.3, 4.1], target: [0, 0.55, 0] },
       },
       {
@@ -284,6 +335,7 @@ export const PONDER_DIGITAL_SPECS: Record<
     englishTitle: 'Inverter (NOT Logic Gate)',
     badge: '基本逻辑门 · 逻辑取反',
     summary: '输入 1 则输出 0，输入 0 则输出 1；物理上利用晶体管/MOS 管共源反相放大并带输出小圆圈标识。',
+    analogyNote: '舞台中的机械跷跷板为【电平反相原理类比】，对应 CMOS 上拉/下拉管互补开关行为。',
     formulas: [
       { expr: "Y = Ā  (逻辑非 / 反相)", note: "两次反相等于原信号本身：A'' = A" },
     ],
@@ -295,8 +347,8 @@ export const PONDER_DIGITAL_SPECS: Record<
       { key: 'a', label: '输入电平 A', kind: 'toggle', defaultValue: 0, trueLabel: 'A = 1 (压下跷跷板)', falseLabel: 'A = 0 (释放跷跷板)' },
     ],
     callouts: [
-      { id: 'inA', title: '输入推杆 A', detail: '逻辑真时向下压住左臂', worldPos: [-1.0, 0.8, 0], color: '#fbbf24' },
-      { id: 'pivot', title: '反相杠杆支点', detail: '如同机械跷跷板颠倒高低', worldPos: [0, 0.65, 0], color: '#a78bfa' },
+      { id: 'inA', title: '输入推杆 A [类比]', detail: '逻辑真时向下压住左臂', worldPos: [-1.0, 0.8, 0], color: '#fbbf24', isAnalogy: true },
+      { id: 'pivot', title: '反相杠杆支点 [类比]', detail: '如同机械跷跷板颠倒高低', worldPos: [0, 0.65, 0], color: '#a78bfa', isAnalogy: true },
       { id: 'outY', title: '反相输出 Y = Ā', detail: '始终与 A 处于相反电平！', worldPos: [1.05, 0.8, 0], color: '#34d399' },
     ],
     steps: [
@@ -304,12 +356,23 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-1',
         title: '永远唱反调的“机械跷跷板”',
         narration: '非门的工作方式好比一架精密跷跷板：当输入 A 为 0（左侧落下）时，另一头高高翘起输出 1；按下 A=1 时，输出端瞬间压回 0！',
+        renderNarration: (p) => {
+          const a = (p.a ?? 0) >= 0.5 ? 1 : 0;
+          const y = a ^ 1;
+          return `非门就像一架反相跷跷板：当前输入 A=${a}，杠杆另一端自动反转输出 Y = Ā = ${y}。`;
+        },
         camera: { position: [4.0, 3.0, 4.1], target: [0, 0.55, 0] },
       },
       {
         id: 'step-2',
         title: 'CMOS 反相器物理真相',
         narration: '在真实芯片内部，输入 A=1 导通下方下拉管把输出拽向 0V 地；A=0 则导通上方上拉管把输出拉上 +5V 电源。',
+        renderNarration: (p) => {
+          const a = (p.a ?? 0) >= 0.5 ? 1 : 0;
+          return a === 1
+            ? '当前 A=1：芯片内部下拉 NMOS 导通，将输出端牢固拉到 0V 地（Y=0）。'
+            : '当前 A=0：芯片内部上拉 PMOS 导通，将输出端抬升到 +5V 电源轨（Y=1）。';
+        },
         camera: { position: [0.2, 2.2, 4.1], target: [0, 0.55, 0] },
       },
       {
@@ -354,6 +417,13 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-2',
         title: '全 1 出 0——唯一被熄灭的组合',
         narration: '当前 A=1、B=1 时，中间核心亮起（1），但反相泡将其拽回低谷，最终输出 Y=0！试着关掉 A 或 B 任意一个，输出灯立刻重新亮起。',
+        renderNarration: (p) => {
+          const a = (p.a ?? 1) >= 0.5 ? 1 : 0;
+          const b = (p.b ?? 1) >= 0.5 ? 1 : 0;
+          const mid = a & b;
+          const y = mid ^ 1;
+          return `当前 A=${a}、B=${b}：前级与门核 A·B=${mid}，经过末端反相泡取反后输出 Y = ${y}（${y === 0 ? '双 1 齐聚才熄灭' : '只要含 0 即亮 1'}）。`;
+        },
         camera: { position: [0.3, 2.3, 4.1], target: [0, 0.55, 0] },
       },
       {
@@ -398,6 +468,13 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-2',
         title: '拨动任意输入验证“有 1 出 0”',
         narration: '默认 A=0, B=0 时输出灯柱 Y 高亮为 1；只要将 A 或 B 任意拨到 1，输出灯立刻熄灭归 0！',
+        renderNarration: (p) => {
+          const a = (p.a ?? 0) >= 0.5 ? 1 : 0;
+          const b = (p.b ?? 0) >= 0.5 ? 1 : 0;
+          const mid = a | b;
+          const y = mid ^ 1;
+          return `当前 A=${a}、B=${b}：中间或门核 A+B=${mid}，经反相泡输出 Y = ${y}（${y === 1 ? '双路安静全 0，输出亮 1' : '出现 1 即被压低为 0'}）。`;
+        },
         camera: { position: [0.3, 2.3, 4.1], target: [0, 0.55, 0] },
       },
       {
@@ -415,6 +492,7 @@ export const PONDER_DIGITAL_SPECS: Record<
     englishTitle: 'Exclusive-OR Gate',
     badge: '运算核心 · 相异出 1',
     summary: '两输入不同（01 或 10）时输出 1，两输入相同（00 或 11）时输出 0；它是二进制不进位加法的灵魂。',
+    analogyNote: '舞台中“对称差异对比齿轮”与机械天平为【异或逻辑差异比对原理类比】，并非真实芯片内部机械零件。',
     formulas: [
       { expr: 'Y = A ⊕ B = A·B′ + A′·B', note: '卡诺图呈标志性棋盘格对角分布！' },
       { expr: '特性：A ⊕ 0 = A ,  A ⊕ 1 = A′ ,  A ⊕ A = 0', note: '不进位二进制模二相加（Sum = A ⊕ B）' },
@@ -429,7 +507,7 @@ export const PONDER_DIGITAL_SPECS: Record<
       { key: 'b', label: '输入端 B', kind: 'toggle', defaultValue: 0, trueLabel: 'B = 1', falseLabel: 'B = 0' },
     ],
     callouts: [
-      { id: 'gears', title: '对称差异对比齿轮', detail: '两轮状态相反时传动咬合', worldPos: [-0.4, 0.8, 0], color: '#a78bfa' },
+      { id: 'gears', title: '对称差异对比齿轮 [类比]', detail: '两轮状态相反时传动咬合（逻辑对比意象）', worldPos: [-0.4, 0.8, 0], color: '#a78bfa', isAnalogy: true },
       { id: 'bridge', title: '跨位对称通道', detail: '仅允许 (0,1) 或 (1,0) 穿越', worldPos: [0.45, 0.75, 0], color: '#fbbf24' },
       { id: 'outY', title: '输出 Y = A ⊕ B', detail: '相异为 1，相同抵消为 0', worldPos: [1.3, 0.8, 0], color: '#34d399' },
     ],
@@ -438,12 +516,27 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-1',
         title: '“不同则真，相同则消”的比较天平',
         narration: '异或门就像一台精密差异检测器：左右两个输入轮 A 和 B 状态如果一高一低（相异），中央比较器输出 1；状态相同反而抵消为 0。',
+        renderNarration: (p) => {
+          const a = (p.a ?? 1) >= 0.5 ? 1 : 0;
+          const b = (p.b ?? 0) >= 0.5 ? 1 : 0;
+          const y = a ^ b;
+          return `异或门用对称齿轮类比差异比较：当前 A=${a}、B=${b}（${a !== b ? '两者相异' : '两者相同'}），输出 Y = ${a} ⊕ ${b} = ${y}。`;
+        },
         camera: { position: [4.1, 3.1, 4.2], target: [0, 0.55, 0] },
       },
       {
         id: 'step-2',
         title: '亲自拨动 (1,1) 看相同抵消',
         narration: '当前 A=1, B=0 时两者互异，输出点亮为 1；试着把 B 也拨成 1，两股等高信号迎头撞击互相抵消，输出灯反而熄灭！',
+        renderNarration: (p) => {
+          const a = (p.a ?? 1) >= 0.5 ? 1 : 0;
+          const b = (p.b ?? 0) >= 0.5 ? 1 : 0;
+          const y = a ^ b;
+          if (y === 1) {
+            return `当前 A=${a}、B=${b} 互异，输出点亮 Y=1；试着让 A 与 B 相等（如同为 1 或同为 0），可见相同输入互相抵消使 Y 归 0！`;
+          }
+          return `当前 A=${a}、B=${b} 状态相同：两路等价信号互相抵消，异或门输出熄灭变为 Y=0！（当且仅当两输入不同才输出 1）`;
+        },
         camera: { position: [0.3, 2.3, 4.1], target: [0, 0.55, 0] },
       },
       {
@@ -487,6 +580,12 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-2',
         title: '一位失衡立即报错（输出 0）',
         narration: '拨动 A 或 B 使两者出现 1 与 0 错位，对等滑块瞬间错开不再咬合，输出变为 0（不相等）。',
+        renderNarration: (p) => {
+          const a = (p.a ?? 1) >= 0.5 ? 1 : 0;
+          const b = (p.b ?? 1) >= 0.5 ? 1 : 0;
+          const y = a === b ? 1 : 0;
+          return `当前 A=${a}、B=${b}：${y === 1 ? '两者完全相等，对齐亮起 MATCH 信号（Y=1）' : '两位出现错位不相等，输出归 0（MATCH 熄灭）'}。`;
+        },
         camera: { position: [0.3, 2.3, 4.1], target: [0, 0.55, 0] },
       },
       {
@@ -532,6 +631,13 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-2',
         title: '经典算式 1 + 1 = 10₂',
         narration: '当 A=1 且 B=1 时：上方 XOR 因相同而归 0（S=0），同时下方 AND 恰好满足全 1 点亮（C=1）！合起来读作二进制 10（十进制 2）。',
+        renderNarration: (p) => {
+          const a = (p.a ?? 1) >= 0.5 ? 1 : 0;
+          const b = (p.b ?? 1) >= 0.5 ? 1 : 0;
+          const s = a ^ b;
+          const c = a & b;
+          return `当前算式 ${a} + ${b} = ${c}${s}₂（十进制 ${a + b}）：上方 XOR 算得本位和 S=${s}，下方 AND 算得进位 C=${c}。`;
+        },
         camera: { position: [0.3, 2.3, 4.2], target: [0, 0.6, 0] },
       },
       {
@@ -584,6 +690,15 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-3',
         title: '动手拨动 3 位输入观察“多数进位”',
         narration: '试着单独关闭 Cin、B、A 中的任意一个或两个：只要三输入里凑够至少两个 1，进位柱 Cout 必定傲然亮起；奇数个 1 时 S 亮起！',
+        renderNarration: (p) => {
+          const a = (p.a ?? 1) >= 0.5 ? 1 : 0;
+          const b = (p.b ?? 1) >= 0.5 ? 1 : 0;
+          const cin = (p.cin ?? 1) >= 0.5 ? 1 : 0;
+          const sum = a + b + cin;
+          const s = sum & 1;
+          const cout = sum >= 2 ? 1 : 0;
+          return `当前输入 A=${a}, B=${b}, Cin=${cin}（共 ${sum} 个 1）：输出进制和 {Cout, S} = ${cout}${s}₂（S=${s}，Cout=${cout}）。`;
+        },
         camera: { position: [-3.3, 2.7, 3.7], target: [0, 0.6, 0] },
       },
     ],
@@ -595,6 +710,7 @@ export const PONDER_DIGITAL_SPECS: Record<
     englishTitle: 'Positive-Edge D Flip-Flop',
     badge: '时序逻辑 · 1-bit 寄存器',
     summary: '数字电路“记忆”功能的最小原子：只在时钟上升沿（CLK ↑）一瞬间把输入 D 锁存到输出 Q，其余时间纹丝不动。',
+    analogyNote: '舞台“机械快门相机”为【边沿触发采样原理类比】，对应内部主从锁存器仅在 CLK 0→1 上升沿捕获 D。',
     formulas: [
       { expr: 'Q(n+1) = D  (仅当 CLK ↑ 发生时采样)', note: '非上升沿期间 Q 保持前次记忆值不变' },
       { expr: 'Q′ = NOT(Q)', note: '同时提供互补反向输出端 Q̄' },
@@ -610,7 +726,7 @@ export const PONDER_DIGITAL_SPECS: Record<
     ],
     callouts: [
       { id: 'dIn', title: 'D 数据待命闸口', detail: '可随时更改但暂不透传给 Q', worldPos: [-1.15, 0.9, -0.45], color: '#38bdf8' },
-      { id: 'shutter', title: '上升沿高速机械快门', detail: '仅在 CLK 0→1 一瞬间闪开抓拍 D', worldPos: [0, 0.85, 0], color: '#fbbf24' },
+      { id: 'shutter', title: '上升沿高速机械快门 [类比]', detail: '仅在 CLK 0→1 一瞬间闪开抓拍 D', worldPos: [0, 0.85, 0], color: '#fbbf24', isAnalogy: true },
       { id: 'qOut', title: '记忆输出灯 Q 与反相 Q̄', detail: '锁存后除非下次 ↑ 否则永久记忆', worldPos: [1.15, 0.85, 0], color: '#34d399' },
     ],
     steps: [
@@ -624,12 +740,28 @@ export const PONDER_DIGITAL_SPECS: Record<
         id: 'step-2',
         title: '在 CLK=0 期间随便改 D，Q 绝不跟风',
         narration: '试着在 CLK=0 时反复拨动 D 开关在 0 和 1 之间切换：看左侧数据柱跟着变色，但右侧记忆灯塔 Q 固若金汤、纹丝不动！',
+        renderNarration: (p) => {
+          const d = (p.d ?? 1) >= 0.5 ? 1 : 0;
+          const clk = (p.clk ?? 0) >= 0.5 ? 1 : 0;
+          const q = (p._q ?? 0) >= 0.5 ? 1 : 0;
+          return clk === 0
+            ? `当前 CLK=0（快门关闭）、D=${d}：无论怎样改 D，已锁存输出 Q=${q} 都保持纹丝不动；把 CLK 拨为 1（上升沿）才会抓拍写入。`
+            : `当前 CLK=1（已采样保持）、D=${d}：触发器当前记忆输出 Q=${q}（降回 CLK=0 后同样保持该值）。`;
+        },
         camera: { position: [0.3, 2.3, 4.2], target: [0, 0.65, 0] },
       },
       {
         id: 'step-3',
         title: '现在按下 CLK（0→1 上升沿）触发锁存！',
         narration: '当把 CLK 从 0 切换到 1 的一刹那，中央金色快门闪电般抬起并落下，把此刻 D 的数值精准抓拍印刻到 Q 上；把 CLK 降回 0 时记忆依然保留！',
+        renderNarration: (p) => {
+          const d = (p.d ?? 1) >= 0.5 ? 1 : 0;
+          const clk = (p.clk ?? 0) >= 0.5 ? 1 : 0;
+          const q = (p._q ?? 0) >= 0.5 ? 1 : 0;
+          return clk === 1
+            ? `上升沿已完成采样！快门闭合后当前输出锁存在 Q=${q}（互补端 Q̄=${q ^ 1}）；此刻输入 D=${d}。`
+            : `当前输入 D=${d}、记住的 Q=${q}：将 CLK 从 0 切换到 1，即在上升沿瞬间把 D=${d} 写入 Q。`;
+        },
         camera: { position: [-3.3, 2.7, 3.6], target: [0, 0.65, 0] },
       },
     ],

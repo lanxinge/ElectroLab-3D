@@ -13,7 +13,15 @@ import { KarnaughMapPanel } from './KarnaughMapPanel';
 
 const SCOPE_COLORS = ['#38bdf8', '#22c55e', '#f59e0b', '#ec4899'];
 
-export const BottomAnalysisDock: React.FC = () => {
+interface BottomAnalysisDockProps {
+  embedded?: boolean;
+  heightPx?: number;
+}
+
+export const BottomAnalysisDock: React.FC<BottomAnalysisDockProps> = ({
+  embedded = false,
+  heightPx,
+}) => {
   const [activeTab, setActiveTab] = useState<'telemetry' | 'digital'>('telemetry');
   const [collapsed, setCollapsed] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -108,9 +116,12 @@ export const BottomAnalysisDock: React.FC = () => {
 
   return (
     <div
-      className={`shrink-0 border-t border-slate-800 bg-slate-900/95 flex flex-col transition-all ${
-        collapsed ? 'h-9' : 'h-64'
-      }`}
+      className={`shrink-0 ${
+        embedded
+          ? 'w-full h-full flex flex-col border-0 bg-transparent'
+          : 'border-t border-slate-800 bg-slate-900/95 flex flex-col transition-all'
+      } ${embedded ? '' : collapsed ? 'h-9' : heightPx ? '' : 'h-64'}`}
+      style={!embedded && !collapsed && heightPx ? { height: heightPx } : undefined}
     >
       {/* Dock Tab Bar */}
       <div className="h-9 px-3 flex items-center justify-between border-b border-slate-800 shrink-0">
@@ -164,7 +175,7 @@ export const BottomAnalysisDock: React.FC = () => {
 
       {/* Body */}
       {!collapsed && (
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-hidden">
           {activeTab === 'digital' ? (
             <KarnaughMapPanel />
           ) : (

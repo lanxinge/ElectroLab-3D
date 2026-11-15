@@ -33,6 +33,23 @@ import {
   buildXnorDiorama,
   buildXorDiorama,
 } from './ponderScenesDigital';
+import {
+  buildCounter4BitDiorama,
+  buildCustomIcDiorama,
+  buildCustomTruth16Diorama,
+  buildCustomTruth8Diorama,
+  buildFuseDiorama,
+  buildIcPortInDiorama,
+  buildIcPortOutDiorama,
+  buildInfResistorDiorama,
+  buildInfSourceDiorama,
+  buildJkFfDiorama,
+  buildLampDiorama,
+  buildMux21Diorama,
+  buildNmosDiorama,
+  buildTransformerDiorama,
+  buildZenerDiodeDiorama,
+} from './ponderScenesExpanded';
 import type { PonderDioramaBuilder } from './ponderTypes';
 
 export const PONDER_SCENE_BUILDERS: Record<ComponentType, PonderDioramaBuilder> = {
@@ -71,4 +88,19 @@ export const PONDER_SCENE_BUILDERS: Record<ComponentType, PonderDioramaBuilder> 
   HALF_ADDER: buildHalfAdderDiorama,
   FULL_ADDER: buildFullAdderDiorama,
   D_FF: buildDFlipFlopDiorama,
+  INF_SOURCE: buildInfSourceDiorama,
+  INF_RESISTOR: buildInfResistorDiorama,
+  ZENER_DIODE: buildZenerDiodeDiorama,
+  NMOS: buildNmosDiorama,
+  TRANSFORMER: buildTransformerDiorama,
+  LAMP: buildLampDiorama,
+  FUSE: buildFuseDiorama,
+  MUX_2_1: buildMux21Diorama,
+  JK_FF: buildJkFfDiorama,
+  COUNTER_4BIT: buildCounter4BitDiorama,
+  CUSTOM_TRUTH_8: buildCustomTruth8Diorama,
+  CUSTOM_TRUTH_16: buildCustomTruth16Diorama,
+  IC_PORT_IN: buildIcPortInDiorama,
+  IC_PORT_OUT: buildIcPortOutDiorama,
+  CUSTOM_IC: buildCustomIcDiorama,
 };

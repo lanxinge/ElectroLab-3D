@@ -20,8 +20,10 @@ import type {
 import {
   COMPONENT_CATALOG,
   formatEngineeringValue,
+  getComponentPins,
   getPinWorld2D,
 } from '../engine/componentCatalog';
+import { parseCustomIcPayload, parseTruthChipConfig } from '../engine/customIcEngine';
 import { useCircuitStore, type SchematicTheme } from '../store/useCircuitStore';
 import { usePonderStore } from '../store/usePonderStore';
 
@@ -461,35 +463,291 @@ function renderSymbolBody(
       );
     }
 
-    default: {
-      // HALF_ADDER, FULL_ADDER, D_FF rectangular IC block
-      const spec = COMPONENT_CATALOG[comp.type];
+    case 'INF_SOURCE': {
+      const v = Number(comp.props.voltage ?? 12);
       return (
         <g>
-          {spec.pins.map((p) => (
-            <line
-              key={p.id}
-              x1={p.offset2d.x < 0 ? -45 : 26}
-              y1={p.offset2d.y}
-              x2={p.offset2d.x < 0 ? -26 : 45}
-              y2={p.offset2d.y}
-              stroke={stroke}
-              strokeWidth={2}
-            />
-          ))}
+          <line x1={-40} y1={0} x2={-18} y2={0} stroke={stroke} strokeWidth={2} />
+          <line x1={18} y1={0} x2={40} y2={0} stroke={stroke} strokeWidth={2} />
+          <circle cx={0} cy={0} r={18} fill={fillBg} stroke="#f59e0b" strokeWidth={2.4} />
+          <text x={0} y={-2} textAnchor="middle" fontSize={12} fontWeight="bold" fill="#fbbf24">
+            ∞
+          </text>
+          <text x={0} y={10} textAnchor="middle" fontSize={8} fontWeight="bold" fill={stroke}>
+            {Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(0)}kV` : `${v}V`}
+          </text>
+        </g>
+      );
+    }
+
+    case 'INF_RESISTOR': {
+      const ideal = comp.props.idealInfinite !== false;
+      return (
+        <g>
+          <line x1={-40} y1={0} x2={-22} y2={0} stroke={stroke} strokeWidth={2} />
+          <line x1={22} y1={0} x2={40} y2={0} stroke={stroke} strokeWidth={2} />
           <rect
-            x={-26}
-            y={-30}
-            width={52}
-            height={60}
-            rx={4}
+            x={-22}
+            y={-11}
+            width={44}
+            height={22}
+            rx={3}
+            fill={fillBg}
+            stroke="#38bdf8"
+            strokeWidth={2}
+            strokeDasharray={ideal ? '3 2' : undefined}
+          />
+          <text x={0} y={4} textAnchor="middle" fontSize={12} fontWeight="bold" fill="#38bdf8">
+            ∞
+          </text>
+        </g>
+      );
+    }
+
+    case 'ZENER_DIODE': {
+      return (
+        <g>
+          <line x1={-40} y1={0} x2={-10} y2={0} stroke={stroke} strokeWidth={2} />
+          <polygon points="-10,-12 -10,12 12,0" fill={fillBg} stroke={stroke} strokeWidth={2} />
+          <polyline
+            points="6,-15 12,-12 12,12 18,15"
+            fill="none"
+            stroke="#38bdf8"
+            strokeWidth={2.2}
+          />
+          <line x1={12} y1={0} x2={40} y2={0} stroke={stroke} strokeWidth={2} />
+        </g>
+      );
+    }
+
+    case 'NMOS': {
+      return (
+        <g>
+          <line x1={-40} y1={0} x2={-14} y2={0} stroke={stroke} strokeWidth={2} />
+          <line x1={-14} y1={-15} x2={-14} y2={15} stroke={stroke} strokeWidth={2.4} />
+          <line x1={-8} y1={-15} x2={-8} y2={-6} stroke={stroke} strokeWidth={2} />
+          <line x1={-8} y1={-4} x2={-8} y2={4} stroke={stroke} strokeWidth={2} />
+          <line x1={-8} y1={6} x2={-8} y2={15} stroke={stroke} strokeWidth={2} />
+          <line x1={-8} y1={-11} x2={12} y2={-11} stroke={stroke} strokeWidth={2} />
+          <line x1={-8} y1={11} x2={12} y2={11} stroke={stroke} strokeWidth={2} />
+          <line x1={12} y1={-11} x2={12} y2={-25} stroke={stroke} strokeWidth={2} />
+          <line x1={12} y1={-25} x2={30} y2={-25} stroke={stroke} strokeWidth={2} />
+          <line x1={12} y1={11} x2={12} y2={25} stroke={stroke} strokeWidth={2} />
+          <line x1={12} y1={25} x2={30} y2={25} stroke={stroke} strokeWidth={2} />
+          <line x1={-8} y1={0} x2={12} y2={0} stroke={stroke} strokeWidth={1.6} />
+          <line x1={12} y1={0} x2={12} y2={11} stroke={stroke} strokeWidth={1.6} />
+          <polygon points="-6,0 2,-3 2,3" fill={stroke} />
+        </g>
+      );
+    }
+
+    case 'TRANSFORMER': {
+      return (
+        <g>
+          <line x1={-45} y1={-20} x2={-16} y2={-20} stroke={stroke} strokeWidth={2} />
+          <line x1={-45} y1={20} x2={-16} y2={20} stroke={stroke} strokeWidth={2} />
+          <path
+            d="M -16 -20 Q -6 -15 -16 -10 Q -6 -5 -16 0 Q -6 5 -16 10 Q -6 15 -16 20"
+            fill="none"
+            stroke="#f59e0b"
+            strokeWidth={2.2}
+          />
+          <line x1={-3} y1={-22} x2={-3} y2={22} stroke={stroke} strokeWidth={2} />
+          <line x1={3} y1={-22} x2={3} y2={22} stroke={stroke} strokeWidth={2} />
+          <path
+            d="M 16 -20 Q 6 -15 16 -10 Q 6 -5 16 0 Q 6 5 16 10 Q 6 15 16 20"
+            fill="none"
+            stroke="#e11d48"
+            strokeWidth={2.2}
+          />
+          <line x1={16} y1={-20} x2={45} y2={-20} stroke={stroke} strokeWidth={2} />
+          <line x1={16} y1={20} x2={45} y2={20} stroke={stroke} strokeWidth={2} />
+          <circle cx={-20} cy={-16} r={2} fill={stroke} />
+          <circle cx={20} cy={-16} r={2} fill={stroke} />
+        </g>
+      );
+    }
+
+    case 'LAMP': {
+      const pRated = Math.max(0.05, Number(comp.props.ratedPower ?? 1.5));
+      const ratio = Math.min(1.5, Math.max(0, (telemetry?.power ?? 0) / pRated));
+      return (
+        <g>
+          <line x1={-40} y1={0} x2={-15} y2={0} stroke={stroke} strokeWidth={2} />
+          <line x1={15} y1={0} x2={40} y2={0} stroke={stroke} strokeWidth={2} />
+          <circle
+            cx={0}
+            cy={0}
+            r={15}
+            fill={ratio > 0.05 ? `rgba(250, 204, 21, ${Math.min(0.65, ratio * 0.5)})` : fillBg}
+            stroke={ratio > 0.05 ? '#facc15' : stroke}
+            strokeWidth={2}
+          />
+          <line x1={-10} y1={-10} x2={10} y2={10} stroke={stroke} strokeWidth={1.8} />
+          <line x1={-10} y1={10} x2={10} y2={-10} stroke={stroke} strokeWidth={1.8} />
+        </g>
+      );
+    }
+
+    case 'FUSE': {
+      const isBlown = Boolean(comp.props.blown) || Boolean(telemetry?.extraInfo?.includes('已熔断'));
+      return (
+        <g>
+          <line x1={-40} y1={0} x2={-18} y2={0} stroke={stroke} strokeWidth={2} />
+          <line x1={18} y1={0} x2={40} y2={0} stroke={stroke} strokeWidth={2} />
+          <rect
+            x={-18}
+            y={-8}
+            width={36}
+            height={16}
+            rx={2}
+            fill={fillBg}
+            stroke={isBlown ? '#ef4444' : stroke}
+            strokeWidth={2}
+          />
+          {isBlown ? (
+            <g stroke="#ef4444" strokeWidth={2}>
+              <line x1={-16} y1={0} x2={-5} y2={-4} />
+              <line x1={5} y1={4} x2={16} y2={0} />
+            </g>
+          ) : (
+            <path
+              d="M -16 0 Q -8 -7 0 0 Q 8 7 16 0"
+              fill="none"
+              stroke={stroke}
+              strokeWidth={1.8}
+            />
+          )}
+        </g>
+      );
+    }
+
+    case 'MUX_2_1': {
+      return (
+        <g>
+          <line x1={-45} y1={-20} x2={-20} y2={-20} stroke={stroke} strokeWidth={2} />
+          <line x1={-45} y1={0} x2={-20} y2={0} stroke={stroke} strokeWidth={2} />
+          <line x1={-45} y1={20} x2={-20} y2={20} stroke={stroke} strokeWidth={2} />
+          <line x1={20} y1={0} x2={45} y2={0} stroke={stroke} strokeWidth={2} />
+          <polygon
+            points="-20,-28 20,-16 20,16 -20,28"
             fill={fillBg}
             stroke={stroke}
             strokeWidth={2}
           />
           <text x={0} y={4} textAnchor="middle" fontSize={10} fontWeight="bold" fill={stroke}>
-            {spec.shortName}
+            MUX
           </text>
+        </g>
+      );
+    }
+
+    case 'IC_PORT_IN':
+    case 'IC_PORT_OUT': {
+      const isIn = comp.type === 'IC_PORT_IN';
+      const high = (telemetry?.logicState ?? 0) === 1;
+      const boxStroke = isIn ? '#38bdf8' : '#22c55e';
+      return (
+        <g>
+          <polygon
+            points={isIn ? '-28,-13 10,-13 22,0 10,13 -28,13' : '-22,0 -10,-13 28,-13 28,13 -10,13'}
+            fill={high ? (isIn ? '#0c4a6e' : '#064e3b') : fillBg}
+            stroke={boxStroke}
+            strokeWidth={2}
+          />
+          <line
+            x1={isIn ? 22 : -35}
+            y1={0}
+            x2={isIn ? 35 : -22}
+            y2={0}
+            stroke={stroke}
+            strokeWidth={2}
+          />
+          <text x={0} y={4} textAnchor="middle" fontSize={9} fontWeight="bold" fill={boxStroke}>
+            {isIn ? 'PIN→' : '←POUT'}
+          </text>
+        </g>
+      );
+    }
+
+    default: {
+      // Half Adder, Full Adder, Flip-Flops, Counters, Truth LUT Chips & Packaged Custom ICs
+      const spec = COMPONENT_CATALOG[comp.type];
+      const pins = getComponentPins(comp);
+      const maxAbsY = Math.max(20, ...pins.map((p) => Math.abs(p.offset2d.y)));
+      const maxAbsX = Math.max(45, ...pins.map((p) => Math.abs(p.offset2d.x)));
+      const bodyHalfW = maxAbsX >= 54 ? 42 : 34;
+      const bodyHalfH = Math.max(36, maxAbsY + 18);
+
+      const accentStroke =
+        comp.type === 'CUSTOM_IC'
+          ? parseCustomIcPayload(comp).color || '#0284c7'
+          : comp.type === 'CUSTOM_TRUTH_8' || comp.type === 'CUSTOM_TRUTH_16'
+          ? '#a855f7'
+          : stroke;
+      const titleText =
+        comp.type === 'CUSTOM_IC'
+          ? parseCustomIcPayload(comp).codeName.slice(0, 8)
+          : comp.type === 'CUSTOM_TRUTH_8' || comp.type === 'CUSTOM_TRUTH_16'
+          ? parseTruthChipConfig(comp).chipName.slice(0, 8)
+          : spec.shortName;
+
+      return (
+        <g>
+          {/* Paint IC package body first so pin labels always sit clearly above it */}
+          <rect
+            x={-bodyHalfW}
+            y={-bodyHalfH}
+            width={bodyHalfW * 2}
+            height={bodyHalfH * 2}
+            rx={5}
+            fill={fillBg}
+            stroke={accentStroke}
+            strokeWidth={2}
+          />
+          <path
+            d={`M -6 ${-bodyHalfH} A 6 6 0 0 0 6 ${-bodyHalfH}`}
+            fill="none"
+            stroke={accentStroke}
+            strokeWidth={1.3}
+          />
+          <text
+            x={0}
+            y={-bodyHalfH + 11}
+            textAnchor="middle"
+            fontSize={8.5}
+            fontWeight="bold"
+            fill={accentStroke}
+          >
+            {titleText}
+          </text>
+          {pins.map((p) => {
+            const isLeft = p.offset2d.x < 0;
+            const displayLabel = p.label.slice(0, 5);
+            return (
+              <g key={p.id}>
+                <line
+                  x1={isLeft ? p.offset2d.x : bodyHalfW}
+                  y1={p.offset2d.y}
+                  x2={isLeft ? -bodyHalfW : p.offset2d.x}
+                  y2={p.offset2d.y}
+                  stroke={stroke}
+                  strokeWidth={2}
+                />
+                <text
+                  data-testid={`schematic-pin-label-${comp.id}-${p.id}`}
+                  x={isLeft ? -bodyHalfW + 3.5 : bodyHalfW - 3.5}
+                  y={p.offset2d.y + 3}
+                  textAnchor={isLeft ? 'start' : 'end'}
+                  fontSize={pins.length >= 10 ? 7.2 : 8}
+                  fontWeight="600"
+                  fill={theme === 'dark' ? '#e2e8f0' : '#1e293b'}
+                >
+                  {displayLabel}
+                </text>
+              </g>
+            );
+          })}
         </g>
       );
     }
@@ -568,7 +826,9 @@ export const CircuitSchematicPreview: React.FC<{
 export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
   onExpandToggle,
 }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const userAdjustedViewportRef = useRef(false);
   const [zoom, setZoom] = useState(0.9);
   const [pan, setPan] = useState({ x: 30, y: 20 });
   const [dragState, setDragState] = useState<
@@ -577,6 +837,14 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
     | null
   >(null);
   const [mouseSvgPos, setMouseSvgPos] = useState<{ x: number; y: number } | null>(null);
+  const [hoveredPin, setHoveredPin] = useState<{
+    componentLabel: string;
+    pinLabel: string;
+    pinId: string;
+    voltage?: number;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const components = useCircuitStore((s) => s.components);
   const wires = useCircuitStore((s) => s.wires);
@@ -585,6 +853,7 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
   const wireTelemetryById = useCircuitStore((s) => s.wireTelemetryById);
   const schematicTheme = useCircuitStore((s) => s.schematicTheme);
   const wiringDraftFrom = useCircuitStore((s) => s.wiringDraftFrom);
+  const circuitLoadVersion = useCircuitStore((s) => s.circuitLoadVersion);
 
   const setSelected = useCircuitStore((s) => s.setSelected);
   const moveComponent2D = useCircuitStore((s) => s.moveComponent2D);
@@ -629,6 +898,7 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
         return;
       }
       setSelected(null);
+      userAdjustedViewportRef.current = true;
       setDragState({
         kind: 'pan',
         startX: e.clientX,
@@ -686,33 +956,69 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
     }
   };
 
-  const fitToView = () => {
-    if (components.length === 0) {
-      setZoom(0.9);
-      setPan({ x: 30, y: 20 });
-      return;
-    }
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-    for (const c of components) {
-      minX = Math.min(minX, c.pos2d.x - 80);
-      minY = Math.min(minY, c.pos2d.y - 70);
-      maxX = Math.max(maxX, c.pos2d.x + 80);
-      maxY = Math.max(maxY, c.pos2d.y + 70);
-    }
-    const cw = Math.max(200, maxX - minX);
-    const ch = Math.max(200, maxY - minY);
-    const nextZoom = Math.min(1.4, Math.max(0.35, Math.min(rect.width / cw, rect.height / ch) * 0.88));
-    setZoom(nextZoom);
-    setPan({
-      x: -minX + (rect.width / nextZoom - cw) / 2,
-      y: -minY + (rect.height / nextZoom - ch) / 2,
+  const fitToView = React.useCallback(
+    (manual = false) => {
+      if (manual) {
+        userAdjustedViewportRef.current = false;
+      }
+      if (components.length === 0) {
+        setZoom(0.9);
+        setPan({ x: 30, y: 20 });
+        return;
+      }
+      const rect = svgRef.current?.getBoundingClientRect();
+      if (!rect || rect.width < 20 || rect.height < 20) return;
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
+      for (const c of components) {
+        const pins = getComponentPins(c);
+        const maxPy = Math.max(24, ...pins.map((p) => Math.abs(p.offset2d.y)));
+        const maxPx = Math.max(40, ...pins.map((p) => Math.abs(p.offset2d.x)));
+        minX = Math.min(minX, c.pos2d.x - (maxPx + 45));
+        minY = Math.min(minY, c.pos2d.y - (maxPy + 45));
+        maxX = Math.max(maxX, c.pos2d.x + (maxPx + 45));
+        maxY = Math.max(maxY, c.pos2d.y + (maxPy + 45));
+      }
+      const cw = Math.max(200, maxX - minX);
+      const ch = Math.max(200, maxY - minY);
+      const nextZoom = Math.min(
+        1.4,
+        Math.max(0.25, Math.min(rect.width / cw, rect.height / ch) * 0.86)
+      );
+      setZoom(nextZoom);
+      setPan({
+        x: -minX + (rect.width / nextZoom - cw) / 2,
+        y: -minY + (rect.height / nextZoom - ch) / 2,
+      });
+    },
+    [components]
+  );
+
+  // Auto-fit when mounted or when a new circuit/preset is loaded
+  React.useEffect(() => {
+    userAdjustedViewportRef.current = false;
+    const id = requestAnimationFrame(() => fitToView(false));
+    return () => cancelAnimationFrame(id);
+  }, [circuitLoadVersion]);
+
+  // Re-fit smoothly on container resize unless the user manually panned/zoomed
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      if (userAdjustedViewportRef.current) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => fitToView(false));
     });
-  };
+    ro.observe(el);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [fitToView]);
 
   const isDark = schematicTheme === 'dark';
 
@@ -745,21 +1051,28 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
             排版
           </button>
           <button
-            onClick={() => setZoom((z) => Math.min(2.2, Number((z + 0.15).toFixed(2))))}
+            onClick={() => {
+              userAdjustedViewportRef.current = true;
+              setZoom((z) => Math.min(2.2, Number((z + 0.15).toFixed(2))));
+            }}
             title="放大"
             className="p-1 rounded hover:bg-slate-700/40"
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => setZoom((z) => Math.max(0.3, Number((z - 0.15).toFixed(2))))}
+            onClick={() => {
+              userAdjustedViewportRef.current = true;
+              setZoom((z) => Math.max(0.3, Number((z - 0.15).toFixed(2))));
+            }}
             title="缩小"
             className="p-1 rounded hover:bg-slate-700/40"
           >
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={fitToView}
+            data-testid="schematic-fit-btn"
+            onClick={() => fitToView(true)}
             title="适应窗口"
             className="p-1 rounded hover:bg-slate-700/40"
           >
@@ -784,47 +1097,47 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
         </div>
       </div>
 
-      {/* Selected quick bar in 2D */}
-      {selected && (
-        <div
-          className={`flex items-center justify-between px-3 py-1 text-[11px] border-b ${
-            isDark
-              ? 'bg-slate-900/60 border-slate-800 text-slate-300'
-              : 'bg-sky-50 border-slate-200 text-slate-700'
-          }`}
-        >
-          <span>
-            已选: {selected.kind === 'component' ? components.find((c) => c.id === selected.id)?.label : '导线'}
-          </span>
-          <div className="flex items-center gap-2">
-            {selected.kind === 'component' && (
-              <button
-                onClick={() => rotateComponent(selected.id)}
-                className="flex items-center gap-1 text-sky-400 hover:underline"
-              >
-                <RotateCw className="w-3 h-3" />
-                旋转90°
-              </button>
-            )}
-            <button
-              onClick={() => removeEntity(selected.kind, selected.id)}
-              className="flex items-center gap-1 text-red-400 hover:underline"
-            >
-              <Trash2 className="w-3 h-3" />
-              删除
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Interactive SVG Canvas */}
-      <div className="relative flex-1 overflow-hidden">
+      <div ref={containerRef} className="relative flex-1 overflow-hidden">
+        {selected && (
+          <div
+            data-testid="schematic-selected-bar"
+            className={`absolute top-2 left-2 right-2 z-10 flex items-center justify-between px-2.5 py-1 text-[11px] rounded-lg border backdrop-blur-sm shadow-sm ${
+              isDark
+                ? 'bg-slate-900/85 border-slate-700 text-slate-200'
+                : 'bg-white/90 border-slate-300 text-slate-700'
+            }`}
+          >
+            <span className="truncate">
+              已选: {selected.kind === 'component' ? components.find((c) => c.id === selected.id)?.label : '导线'}
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              {selected.kind === 'component' && (
+                <button
+                  onClick={() => rotateComponent(selected.id)}
+                  className="flex items-center gap-1 text-sky-400 hover:underline"
+                >
+                  <RotateCw className="w-3 h-3" />
+                  旋转90°
+                </button>
+              )}
+              <button
+                onClick={() => removeEntity(selected.kind, selected.id)}
+                className="flex items-center gap-1 text-red-400 hover:underline"
+              >
+                <Trash2 className="w-3 h-3" />
+                删除
+              </button>
+            </div>
+          </div>
+        )}
         <svg
           ref={svgRef}
           onPointerDown={handleSvgPointerDown}
           onPointerMove={handleSvgPointerMove}
           onPointerUp={handleSvgPointerUp}
           onWheel={(e) => {
+            userAdjustedViewportRef.current = true;
             const delta = e.deltaY < 0 ? 0.08 : -0.08;
             setZoom((z) => Math.min(2.2, Math.max(0.3, Number((z + delta).toFixed(2)))));
           }}
@@ -934,14 +1247,22 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
               const valueStr =
                 c.type === 'RESISTOR'
                   ? formatEngineeringValue(Number(c.props.resistance ?? 220), 'Ω')
+                  : c.type === 'INF_RESISTOR'
+                  ? c.props.idealInfinite === false
+                    ? formatEngineeringValue(Number(c.props.resistance ?? 1e12), 'Ω')
+                    : '∞ Ω'
                   : c.type === 'CAPACITOR'
                   ? `${Number(c.props.capacitance ?? 100)} µF`
                   : c.type === 'INDUCTOR'
                   ? `${Number(c.props.inductance ?? 100)} mH`
-                  : c.type === 'DC_SOURCE'
-                  ? `${Number(c.props.voltage ?? 5)} V`
+                  : c.type === 'DC_SOURCE' || c.type === 'INF_SOURCE'
+                  ? `${Number(c.props.voltage ?? (c.type === 'INF_SOURCE' ? 12 : 5))} V`
                   : c.type === 'AC_SOURCE'
                   ? `${Number(c.props.amplitude ?? 5)}V/${Number(c.props.frequency ?? 2)}Hz`
+                  : c.type === 'TRANSFORMER'
+                  ? `N=${Number(c.props.ratio ?? 2)}`
+                  : c.type === 'ZENER_DIODE'
+                  ? `Vz=${Number(c.props.vz ?? 5.1)}V`
                   : c.type === 'POTENTIOMETER'
                   ? `${formatEngineeringValue(Number(c.props.resistance ?? 1000), 'Ω')} (${Math.round(
                       Number(c.props.ratio ?? 0.5) * 100
@@ -986,67 +1307,92 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
                   onMouseLeave={() => usePonderStore.getState().clearHoverIfSource('2d')}
                   className="cursor-move"
                 >
-                  {(isSel || tel?.overloaded) && (
-                    <rect
-                      x={-48}
-                      y={-38}
-                      width={96}
-                      height={76}
-                      rx={8}
-                      fill="none"
-                      stroke={tel?.overloaded ? '#ef4444' : '#38bdf8'}
-                      strokeWidth={1.8}
-                      strokeDasharray="4 3"
-                    />
-                  )}
+                  {(() => {
+                    const compPins = getComponentPins(c);
+                    const maxPinY = compPins.reduce((m, p) => Math.max(m, Math.abs(p.offset2d.y)), 18);
+                    const maxPinX = compPins.reduce((m, p) => Math.max(m, Math.abs(p.offset2d.x)), 36);
+                    const boxHalfW = Math.max(48, maxPinX + 12);
+                    const boxHalfH = Math.max(38, maxPinY + 20);
+                    return (
+                      <>
+                        {(isSel || tel?.overloaded) && (
+                          <rect
+                            x={-boxHalfW}
+                            y={-boxHalfH}
+                            width={boxHalfW * 2}
+                            height={boxHalfH * 2}
+                            rx={8}
+                            fill="none"
+                            stroke={tel?.overloaded ? '#ef4444' : '#38bdf8'}
+                            strokeWidth={1.8}
+                            strokeDasharray="4 3"
+                          />
+                        )}
 
-                  <g transform={`rotate(${c.rot2d})`}>{renderSymbolBody(c, tel, schematicTheme)}</g>
+                        <g transform={`rotate(${c.rot2d})`}>{renderSymbolBody(c, tel, schematicTheme)}</g>
 
-                  {/* Component Label & Live Value */}
-                  <text
-                    x={0}
-                    y={-34}
-                    textAnchor="middle"
-                    fontSize={11}
-                    fontWeight="bold"
-                    fill={isDark ? '#f1f5f9' : '#0f172a'}
-                  >
-                    {c.label} {valueStr ? `(${valueStr})` : ''}
-                  </text>
-                  {liveStr && (
-                    <text
-                      x={0}
-                      y={42}
-                      textAnchor="middle"
-                      fontSize={9.5}
-                      fontFamily="monospace"
-                      fill={
-                        tel?.overloaded
-                          ? '#ef4444'
-                          : isDark
-                          ? '#34d399'
-                          : '#059669'
-                      }
-                    >
-                      {liveStr}
-                    </text>
-                  )}
+                        {/* Component Label & Live Value */}
+                        <text
+                          x={0}
+                          y={compPins.length >= 5 ? -boxHalfH - 4 : -34}
+                          textAnchor="middle"
+                          fontSize={11}
+                          fontWeight="bold"
+                          fill={isDark ? '#f1f5f9' : '#0f172a'}
+                        >
+                          {c.label} {valueStr ? `(${valueStr})` : ''}
+                        </text>
+                        {liveStr && (
+                          <text
+                            x={0}
+                            y={compPins.length >= 5 ? boxHalfH + 12 : 42}
+                            textAnchor="middle"
+                            fontSize={9.5}
+                            fontFamily="monospace"
+                            fill={
+                              tel?.overloaded
+                                ? '#ef4444'
+                                : isDark
+                                ? '#34d399'
+                                : '#059669'
+                            }
+                          >
+                            {liveStr}
+                          </text>
+                        )}
+                      </>
+                    );
+                  })()}
 
                   {/* Interactive Pins */}
-                  {spec.pins.map((p) => {
+                  {getComponentPins(c).map((p) => {
                     const rad = (c.rot2d * Math.PI) / 180;
                     const px = p.offset2d.x * Math.cos(rad) - p.offset2d.y * Math.sin(rad);
                     const py = p.offset2d.x * Math.sin(rad) + p.offset2d.y * Math.cos(rad);
                     const isDraftPin =
                       wiringDraftFrom?.componentId === c.id && wiringDraftFrom?.pinId === p.id;
+                    const pv = tel?.pinVoltages?.[p.id];
                     return (
                       <g
                         key={p.id}
                         transform={`translate(${px}, ${py})`}
                         onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => handlePinClick(e, { componentId: c.id, pinId: p.id })}
+                        onMouseEnter={(e) => {
+                          const crect = containerRef.current?.getBoundingClientRect();
+                          setHoveredPin({
+                            componentLabel: c.label,
+                            pinLabel: p.label,
+                            pinId: p.id,
+                            voltage: pv,
+                            x: crect ? Math.min(crect.width - 170, Math.max(8, e.clientX - crect.left + 12)) : 16,
+                            y: crect ? Math.max(8, e.clientY - crect.top - 34) : 16,
+                          });
+                        }}
+                        onMouseLeave={() => setHoveredPin(null)}
                         className="cursor-crosshair"
                       >
+                        <title>{`${c.label} · 引脚 ${p.label} (${p.id})`}</title>
                         <circle r={9} fill="transparent" />
                         <circle
                           r={isDraftPin ? 5.5 : 3.8}
@@ -1062,6 +1408,24 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
             })}
           </g>
         </svg>
+
+        {hoveredPin && (
+          <div
+            data-testid="schematic-pin-tooltip"
+            style={{ left: hoveredPin.x, top: hoveredPin.y }}
+            className="pointer-events-none absolute z-20 px-2.5 py-1 rounded-md bg-slate-950/95 border border-amber-400/60 text-[11px] text-slate-100 shadow-lg whitespace-nowrap"
+          >
+            <span className="font-semibold text-amber-300">{hoveredPin.componentLabel}</span>
+            <span className="mx-1 text-slate-400">·</span>
+            <span>引脚 {hoveredPin.pinLabel}</span>
+            <span className="ml-1 font-mono text-[10px] text-slate-400">({hoveredPin.pinId})</span>
+            {hoveredPin.voltage !== undefined && (
+              <span className="ml-1.5 font-mono text-emerald-300">
+                {hoveredPin.voltage.toFixed(2)}V
+              </span>
+            )}
+          </div>
+        )}
 
         <div
           className={`pointer-events-none absolute bottom-2 left-2 px-2 py-0.5 rounded text-[10px] ${

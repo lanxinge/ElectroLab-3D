@@ -244,6 +244,7 @@ export class Ponder3DStage {
         boxY,
         side,
         visible: true,
+        isAnalogy: Boolean(c.isAnalogy),
       });
     }
 
