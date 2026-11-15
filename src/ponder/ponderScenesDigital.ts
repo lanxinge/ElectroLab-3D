@@ -804,8 +804,10 @@ export const buildDFlipFlopDiorama: PonderDioramaBuilder = () => {
   root.add(qLamp.group, qBarLamp.group);
 
   // Edge-triggered memory state preserved inside closure
+  let initialized = false;
   let prevClk = 0;
   let latchedQ = 1;
+  let lastSyncedExternalQ: number | undefined;
   let flashTimer = 0;
 
   return {
@@ -813,6 +815,19 @@ export const buildDFlipFlopDiorama: PonderDioramaBuilder = () => {
     update: (elapsed, _s, _p, params) => {
       const d = (params.d ?? 1) >= 0.5 ? 1 : 0;
       const clk = (params.clk ?? 0) >= 0.5 ? 1 : 0;
+      const extQ = typeof params._q === 'number' ? (params._q >= 0.5 ? 1 : 0) : undefined;
+
+      if (!initialized) {
+        initialized = true;
+        if (extQ !== undefined) {
+          latchedQ = extQ;
+          lastSyncedExternalQ = extQ;
+          prevClk = clk;
+        }
+      } else if (extQ !== undefined && extQ !== lastSyncedExternalQ) {
+        latchedQ = extQ;
+        lastSyncedExternalQ = extQ;
+      }
 
       // Capture D ONLY on 0 -> 1 rising clock edge!
       if (prevClk === 0 && clk === 1) {

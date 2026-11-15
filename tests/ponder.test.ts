@@ -188,4 +188,135 @@ describe('Create-Mod Style Ponder System (All 45 Circuit Modules)', () => {
     expect(PONDER_DATA.XOR.analogyNote).toContain('原理类比');
     expect(PONDER_DATA.XOR.callouts.some((c) => c.isAnalogy)).toBe(true);
   });
+
+  it('keeps RC discharge signed/magnitude math consistent and avoids positive/positive = negative', () => {
+    const rComp = {
+      id: 'r1',
+      type: 'RESISTOR' as const,
+      label: 'R1',
+      pos3d: [0, 0, 0] as [number, number, number],
+      rotationY: 0,
+      pos2d: { x: 320, y: 160 },
+      rot2d: 0,
+      props: { resistance: 1000, maxPower: 1.0 },
+    };
+    const cComp = {
+      id: 'c1',
+      type: 'CAPACITOR' as const,
+      label: 'C1',
+      pos3d: [1, 0, 0] as [number, number, number],
+      rotationY: 0,
+      pos2d: { x: 490, y: 260 },
+      rot2d: 90,
+      props: { capacitance: 220 },
+    };
+    const rDischargeTel = {
+      componentId: 'r1',
+      voltageDrop: -3.2,
+      current: -0.0032,
+      power: 0.01024,
+      maxPower: 1.0,
+      loadRatio: 0.01024,
+      overloaded: false,
+      pinVoltages: { a: 0, b: 3.2 },
+    };
+    const cDischargeTel = {
+      componentId: 'c1',
+      voltageDrop: 3.2,
+      current: -0.0032,
+      power: 0.01024,
+      maxPower: 5.0,
+      loadRatio: 0.002,
+      overloaded: false,
+      pinVoltages: { pos: 3.2, neg: 0 },
+    };
+    const wire = {
+      id: 'w2',
+      from: { componentId: 'r1', pinId: 'b' },
+      to: { componentId: 'c1', pinId: 'pos' },
+      color: '#38bdf8',
+    };
+
+    const rCtx = deriveInstancePonderContext(rComp, rDischargeTel, [rComp, cComp], [wire]);
+    expect(rCtx.isOverridden).toBe(false);
+    expect(rCtx.causalExplanation).toContain('-3.20 V / 1.00 kΩ = -3.20 mA');
+    expect(rCtx.causalExplanation).toContain('3.20 V / 1.00 kΩ = 3.20 mA');
+    expect(rCtx.causalExplanation).not.toContain('= 3.20 V / 1.00 kΩ = -3.20 mA');
+
+    const cCtx = deriveInstancePonderContext(cComp, cDischargeTel, [rComp, cComp], [wire]);
+    expect(cCtx.causalExplanation).toContain('放电');
+    expect(cCtx.liveMetrics.some((m) => m.label.includes('放电') && m.value === '-3.20 mA')).toBe(
+      true
+    );
+  });
+
+  it('synchronizes liveMetrics, causalExplanation, and pinSummary when toggling inputs in instance mode', () => {
+    const xorComp = {
+      id: 'xor1',
+      type: 'XOR' as const,
+      label: 'U1_XOR',
+      pos3d: [0, 0, 0] as [number, number, number],
+      rotationY: 0,
+      pos2d: { x: 270, y: 170 },
+      rot2d: 0,
+      props: {},
+    };
+    const xorTel = {
+      componentId: 'xor1',
+      voltageDrop: 0,
+      current: 0,
+      power: 0,
+      maxPower: 1,
+      loadRatio: 0,
+      overloaded: false,
+      pinVoltages: { a: 0, b: 0, y: 0 },
+    };
+
+    const syncedXor = deriveInstancePonderContext(xorComp, xorTel, [xorComp], []);
+    expect(syncedXor.isOverridden).toBe(false);
+    expect(syncedXor.liveMetrics[0].label).toContain('实测');
+    expect(syncedXor.liveMetrics[0].value).toBe('A=0, B=0');
+    expect(syncedXor.liveMetrics[1].value).toContain('Y=0');
+
+    const trialXor = deriveInstancePonderContext(xorComp, xorTel, [xorComp], [], { a: 1, b: 0 });
+    expect(trialXor.isOverridden).toBe(true);
+    expect(trialXor.liveMetrics[0].label).toContain('试算');
+    expect(trialXor.liveMetrics[0].value).toBe('A=1, B=0');
+    expect(trialXor.liveMetrics[1].label).toContain('试算');
+    expect(trialXor.liveMetrics[1].value).toBe('Y=1 (5.0V)');
+    expect(trialXor.liveMetrics.every((m) => !m.label.includes('实测'))).toBe(true);
+    expect(trialXor.causalExplanation).toContain('交互试算');
+    expect(trialXor.causalExplanation).toContain('Y = 1 ⊕ 0 = 1');
+    expect(trialXor.pinSummary).toContain('A: 5.00V(1)');
+    expect(trialXor.pinSummary).toContain('Y: 5.00V(1)');
+
+    const inComp = {
+      id: 'in1',
+      type: 'LOGIC_IN' as const,
+      label: 'B',
+      pos3d: [-1, 0, 0] as [number, number, number],
+      rotationY: 0,
+      pos2d: { x: 100, y: 260 },
+      rot2d: 0,
+      props: { state: 0, varName: 'B' },
+    };
+    const inTel = {
+      componentId: 'in1',
+      voltageDrop: 0,
+      current: 0,
+      power: 0,
+      maxPower: 1,
+      loadRatio: 0,
+      overloaded: false,
+      logicState: 0,
+      pinVoltages: { out: 0 },
+    };
+
+    const trialIn = deriveInstancePonderContext(inComp, inTel, [inComp], [], { state: 1 });
+    expect(trialIn.isOverridden).toBe(true);
+    expect(trialIn.liveMetrics[0].label).toContain('试算');
+    expect(trialIn.liveMetrics[0].value).toBe('1 (HIGH +5.0V)');
+    expect(trialIn.pinSummary).toContain('5.00V(1)');
+    expect(trialIn.applyPropsPatch).toEqual({ state: 1 });
+  });
 });

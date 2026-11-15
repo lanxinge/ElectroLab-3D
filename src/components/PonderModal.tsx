@@ -28,6 +28,9 @@ function buildDefaultParams(type: ComponentType): Record<string, number> {
   for (const ctrl of PONDER_DATA[type].controls) {
     out[ctrl.key] = ctrl.defaultValue;
   }
+  if (type === 'D_FF') {
+    out._q = 1;
+  }
   return out;
 }
 
@@ -45,6 +48,7 @@ export const PonderModal: React.FC = () => {
   const telemetryById = useCircuitStore((s) => s.telemetryById);
   const selected = useCircuitStore((s) => s.selected);
   const addComponent = useCircuitStore((s) => s.addComponent);
+  const updateComponentProp = useCircuitStore((s) => s.updateComponentProp);
 
   const stageHostRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Ponder3DStage | null>(null);
@@ -52,7 +56,8 @@ export const PonderModal: React.FC = () => {
   const [stepIndex, setStepIndex] = useState(0);
   const [stepProgress, setStepProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
-  const [params, setParams] = useState<Record<string, number>>({});
+  const [stdParams, setStdParams] = useState<Record<string, number>>({});
+  const [instanceOverrideParams, setInstanceOverrideParams] = useState<Record<string, number> | null>(null);
   const [callouts, setCallouts] = useState<PonderProjectedCallout[]>([]);
   const [metrics, setMetrics] = useState<PonderLiveMetric[]>([]);
   const [webglError, setWebglError] = useState<string | null>(null);
@@ -76,7 +81,7 @@ export const PonderModal: React.FC = () => {
   const effectiveMode =
     ponderMode === 'instance' && linkedComp ? 'instance' : 'standard';
 
-  const instanceCtx = useMemo(() => {
+  const baseInstanceCtx = useMemo(() => {
     if (!linkedComp) return null;
     return deriveInstancePonderContext(
       linkedComp,
@@ -85,6 +90,25 @@ export const PonderModal: React.FC = () => {
       wires
     );
   }, [linkedComp, telemetryById, components, wires]);
+
+  const activeParams = useMemo(() => {
+    if (effectiveMode === 'instance' && baseInstanceCtx) {
+      return instanceOverrideParams ?? baseInstanceCtx.initialParams;
+    }
+    return stdParams;
+  }, [effectiveMode, baseInstanceCtx, instanceOverrideParams, stdParams]);
+
+  const displayInstanceCtx = useMemo(() => {
+    if (!linkedComp || !baseInstanceCtx) return null;
+    if (!instanceOverrideParams) return baseInstanceCtx;
+    return deriveInstancePonderContext(
+      linkedComp,
+      telemetryById[linkedComp.id],
+      components,
+      wires,
+      instanceOverrideParams
+    );
+  }, [linkedComp, baseInstanceCtx, instanceOverrideParams, telemetryById, components, wires]);
 
   // Mount Three.js Ponder3DStage when modal opens
   useEffect(() => {
@@ -103,27 +127,38 @@ export const PonderModal: React.FC = () => {
     };
   }, [modalOpen]);
 
-  // Switch active module or mode inside stage cleanly
+  // Switch active module or mode inside stage cleanly (do NOT depend on live telemetry ticks!)
   useEffect(() => {
     if (!modalOpen || !activeType) return;
-    const initial =
-      effectiveMode === 'instance' && instanceCtx
-        ? { ...instanceCtx.initialParams }
-        : buildDefaultParams(activeType);
-    setParams(initial);
+    const defParams = buildDefaultParams(activeType);
+    setStdParams(defParams);
+    setInstanceOverrideParams(null);
+
+    let initialForStage = defParams;
+    if (effectiveMode === 'instance' && linkedComp) {
+      const snap = useCircuitStore.getState();
+      const freshCtx = deriveInstancePonderContext(
+        linkedComp,
+        snap.telemetryById[linkedComp.id],
+        snap.components,
+        snap.wires
+      );
+      initialForStage = { ...freshCtx.initialParams };
+    }
+
     setStepIndex(0);
     setStepProgress(0);
     setIsPlaying(true);
     setCallouts([]);
     setMetrics([]);
-    stageRef.current?.loadModule(activeType, initial);
+    stageRef.current?.loadModule(activeType, initialForStage);
   }, [modalOpen, activeType, effectiveMode, linkedComp?.id]);
 
   // Push params & playback progress into 3D stage
   useEffect(() => {
     if (!modalOpen || !stageRef.current) return;
-    stageRef.current.updatePlayback(stepIndex, stepProgress, params);
-  }, [modalOpen, stepIndex, stepProgress, params]);
+    stageRef.current.updatePlayback(stepIndex, stepProgress, activeParams);
+  }, [modalOpen, stepIndex, stepProgress, activeParams]);
 
   // Chapter auto-advance timeline loop
   useEffect(() => {
@@ -192,6 +227,38 @@ export const PonderModal: React.FC = () => {
   const handleAddToWorkbench = () => {
     addComponent(activeType);
     closePonder();
+  };
+
+  const handleControlChange = (key: string, nextVal: number) => {
+    const next: Record<string, number> = { ...activeParams, [key]: nextVal };
+    if (activeType === 'D_FF' && key === 'clk') {
+      const prevClk = (activeParams.clk ?? 0) >= 0.5 ? 1 : 0;
+      const nextClk = nextVal >= 0.5 ? 1 : 0;
+      if (prevClk === 0 && nextClk === 1) {
+        next._q = (activeParams.d ?? 1) >= 0.5 ? 1 : 0;
+      }
+    }
+
+    if (effectiveMode === 'instance' && baseInstanceCtx) {
+      const checkKeys = new Set([
+        ...Object.keys(baseInstanceCtx.initialParams),
+        ...(activeType === 'D_FF' ? ['_q'] : []),
+      ]);
+      const matchesBaseline = Array.from(checkKeys).every(
+        (k) => Math.abs((next[k] ?? 0) - (baseInstanceCtx.initialParams[k] ?? 0)) <= 1e-4
+      );
+      setInstanceOverrideParams(matchesBaseline ? null : next);
+    } else {
+      setStdParams(next);
+    }
+  };
+
+  const handleApplyPropsToWorkbench = () => {
+    if (!linkedComp || !displayInstanceCtx?.applyPropsPatch) return;
+    for (const [k, v] of Object.entries(displayInstanceCtx.applyPropsPatch)) {
+      updateComponentProp(linkedComp.id, k, v);
+    }
+    setInstanceOverrideParams(null);
   };
 
   const accentBadgeClass = (accent?: PonderLiveMetric['accent']) => {
@@ -359,8 +426,11 @@ export const PonderModal: React.FC = () => {
             ))}
 
             {/* Top-Left Live Metrics & Hint */}
-            <div className="pointer-events-none absolute top-3 left-3 flex flex-wrap items-center gap-2 max-w-[75%]">
-              {(effectiveMode === 'instance' && instanceCtx ? instanceCtx.liveMetrics : metrics).map((m, idx) => (
+            <div
+              data-testid="ponder-live-metrics"
+              className="pointer-events-none absolute top-3 left-3 flex flex-wrap items-center gap-2 max-w-[75%]"
+            >
+              {(effectiveMode === 'instance' && displayInstanceCtx ? displayInstanceCtx.liveMetrics : metrics).map((m, idx) => (
                 <div
                   key={idx}
                   className={`px-2.5 py-1 rounded-lg border text-[11px] backdrop-blur-md shadow ${accentBadgeClass(
@@ -383,16 +453,15 @@ export const PonderModal: React.FC = () => {
               {spec.controls.length > 0 && (
                 <div className="flex flex-wrap items-center gap-3 px-3 py-2 rounded-xl bg-slate-900/88 border border-slate-700/80 backdrop-blur-md self-start">
                   {spec.controls.map((ctrl) => {
-                    const val = params[ctrl.key] ?? ctrl.defaultValue;
+                    const val = activeParams[ctrl.key] ?? ctrl.defaultValue;
                     if (ctrl.kind === 'toggle') {
                       const active = val >= 0.5;
                       return (
                         <button
                           key={ctrl.key}
                           type="button"
-                          onClick={() =>
-                            setParams((p) => ({ ...p, [ctrl.key]: active ? 0 : 1 }))
-                          }
+                          data-testid={`ponder-ctrl-${ctrl.key}`}
+                          onClick={() => handleControlChange(ctrl.key, active ? 0 : 1)}
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition ${
                             active
                               ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
@@ -413,13 +482,12 @@ export const PonderModal: React.FC = () => {
                         </span>
                         <input
                           type="range"
+                          data-testid={`ponder-ctrl-${ctrl.key}`}
                           min={sMin}
                           max={sMax}
                           step={ctrl.step ?? 0.5}
                           value={val}
-                          onChange={(e) =>
-                            setParams((p) => ({ ...p, [ctrl.key]: Number(e.target.value) }))
-                          }
+                          onChange={(e) => handleControlChange(ctrl.key, Number(e.target.value))}
                           className="w-28 accent-amber-400 cursor-pointer"
                         />
                         <span className="font-mono text-amber-300 text-[11px] min-w-[46px]">
@@ -515,29 +583,73 @@ export const PonderModal: React.FC = () => {
                 步骤 {stepIndex + 1} · {currentStep.title}
               </div>
               <p data-testid="ponder-step-narration" className="text-xs leading-relaxed text-slate-200">
-                {resolveStepNarration(spec, stepIndex, params)}
+                {resolveStepNarration(spec, stepIndex, activeParams)}
               </p>
             </div>
 
-            {effectiveMode === 'instance' && instanceCtx && (
+            {effectiveMode === 'instance' && displayInstanceCtx && (
               <div
                 data-testid="ponder-instance-card"
-                className="p-3.5 rounded-xl bg-emerald-950/45 border border-emerald-500/40 space-y-2"
+                className={`p-3.5 rounded-xl border space-y-2 ${
+                  displayInstanceCtx.isOverridden
+                    ? 'bg-amber-950/40 border-amber-500/45'
+                    : 'bg-emerald-950/45 border-emerald-500/40'
+                }`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-emerald-300">
-                    当前电路实测推导 · {instanceCtx.componentLabel}
+                  <span
+                    className={`text-[11px] font-semibold ${
+                      displayInstanceCtx.isOverridden ? 'text-amber-300' : 'text-emerald-300'
+                    }`}
+                  >
+                    {displayInstanceCtx.isOverridden ? '当前元件试算推演' : '当前电路实测推导'} ·{' '}
+                    {displayInstanceCtx.componentLabel}
                   </span>
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-[10px] text-emerald-200">
-                    工作台同步
+                  <span
+                    data-testid="ponder-instance-badge"
+                    className={`px-1.5 py-0.5 rounded text-[10px] ${
+                      displayInstanceCtx.isOverridden
+                        ? 'bg-amber-500/25 text-amber-200 border border-amber-400/40'
+                        : 'bg-emerald-500/20 text-emerald-200'
+                    }`}
+                  >
+                    {displayInstanceCtx.isOverridden ? '试算模式' : '工作台同步'}
                   </span>
                 </div>
-                <p className="text-xs leading-relaxed text-slate-100">
-                  {instanceCtx.causalExplanation}
+                <p
+                  data-testid="ponder-instance-explanation"
+                  className="text-xs leading-relaxed text-slate-100"
+                >
+                  {displayInstanceCtx.causalExplanation}
                 </p>
-                {instanceCtx.pinSummary && (
-                  <div className="px-2 py-1.5 rounded bg-slate-950/80 border border-slate-800 font-mono text-[10px] text-sky-300 leading-relaxed break-all">
-                    {instanceCtx.pinSummary}
+                {displayInstanceCtx.pinSummary && (
+                  <div
+                    data-testid="ponder-instance-pins"
+                    className="px-2 py-1.5 rounded bg-slate-950/80 border border-slate-800 font-mono text-[10px] text-sky-300 leading-relaxed break-all"
+                  >
+                    {displayInstanceCtx.pinSummary}
+                  </div>
+                )}
+                {displayInstanceCtx.isOverridden && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      data-testid="ponder-reset-instance-btn"
+                      onClick={() => setInstanceOverrideParams(null)}
+                      className="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[11px] font-medium text-slate-200 transition"
+                    >
+                      还原实测
+                    </button>
+                    {displayInstanceCtx.applyPropsPatch && (
+                      <button
+                        type="button"
+                        data-testid="ponder-apply-props-btn"
+                        onClick={handleApplyPropsToWorkbench}
+                        className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[11px] font-medium text-white transition"
+                      >
+                        应用到工作台
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
