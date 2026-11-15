@@ -11,6 +11,8 @@ import { ForumView } from './components/ForumView';
 import { AuthModal } from './components/AuthModal';
 import { PublishCircuitModal } from './components/PublishCircuitModal';
 import { MyProjectsModal } from './components/MyProjectsModal';
+import { PonderHoverOverlay } from './components/PonderHoverOverlay';
+import { PonderModal } from './components/PonderModal';
 
 export function App() {
   const [activeView, setActiveView] = useState<'simulator' | 'forum'>('simulator');
@@ -100,6 +102,8 @@ export function App() {
           }}
         />
       )}
+      <PonderHoverOverlay />
+      <PonderModal />
     </div>
   );
 }

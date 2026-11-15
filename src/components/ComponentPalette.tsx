@@ -3,6 +3,7 @@ import { Plus, Search } from 'lucide-react';
 import type { ComponentCategory, ComponentType } from '../../shared/types';
 import { CATEGORY_LABELS, COMPONENT_CATALOG } from '../engine/componentCatalog';
 import { useCircuitStore } from '../store/useCircuitStore';
+import { usePonderStore } from '../store/usePonderStore';
 
 const CATEGORY_ORDER: ComponentCategory[] = [
   'power',
@@ -107,8 +108,24 @@ export const ComponentPalette: React.FC = () => {
                 {items.map((spec) => (
                   <button
                     key={spec.type}
+                    data-testid={`palette-item-${spec.type}`}
                     draggable
-                    onDragStart={(e) => handleDragStart(e, spec.type)}
+                    onDragStart={(e) => {
+                      usePonderStore.getState().clearHoverIfSource('palette');
+                      handleDragStart(e, spec.type);
+                    }}
+                    onMouseDown={() => usePonderStore.getState().clearHoverIfSource('palette')}
+                    onMouseEnter={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      usePonderStore.getState().setHoveredTarget({
+                        type: spec.type,
+                        label: spec.name,
+                        source: 'palette',
+                        anchorX: rect.right + 4,
+                        anchorY: rect.top,
+                      });
+                    }}
+                    onMouseLeave={() => usePonderStore.getState().clearHoverIfSource('palette')}
                     onClick={() => addComponent(spec.type)}
                     title={spec.description}
                     className="group flex items-center justify-between w-full text-left px-2 py-1.5 rounded-md bg-slate-950/70 hover:bg-slate-800 border border-slate-800/80 hover:border-sky-500/50 transition"

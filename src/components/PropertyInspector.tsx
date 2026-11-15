@@ -1,7 +1,8 @@
 import React from 'react';
-import { Activity, AlertTriangle, RotateCw, Trash2, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, RotateCw, Sparkles, Trash2, Zap } from 'lucide-react';
 import { COMPONENT_CATALOG, formatEngineeringValue } from '../engine/componentCatalog';
 import { useCircuitStore } from '../store/useCircuitStore';
+import { usePonderStore } from '../store/usePonderStore';
 
 export const PropertyInspector: React.FC = () => {
   const selected = useCircuitStore((s) => s.selected);
@@ -84,6 +85,16 @@ export const PropertyInspector: React.FC = () => {
           <div className="text-[10px] text-slate-400">{spec.description}</div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            data-testid="inspector-ponder-btn"
+            onClick={() => usePonderStore.getState().openPonder(comp.type)}
+            title="开启 Create 风格 3D 思索原理演示 (W)"
+            className="flex items-center gap-1 px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-300 text-[11px] font-medium transition"
+          >
+            <Sparkles className="w-3 h-3" />
+            思索
+          </button>
           <button
             onClick={() => rotateComponent(comp.id)}
             title="旋转 90°"

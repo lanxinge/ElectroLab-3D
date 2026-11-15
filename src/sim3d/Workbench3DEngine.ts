@@ -41,6 +41,9 @@ export interface EngineCallbacks {
   onCompleteWire: (from: PinRef, to: PinRef) => void;
   onLabelsUpdated: (labels: ProjectedLabel[]) => void;
   onHoverPinChange: (pin: PinRef | null) => void;
+  onHoverComponentChange?: (
+    hit: { componentId: string; clientX: number; clientY: number } | null
+  ) => void;
 }
 
 interface WireMeshRecord {
@@ -81,6 +84,7 @@ export class Workbench3DEngine {
 
   private wiringDragStartedFrom: PinRef | null = null;
   private hoveredPin: PinRef | null = null;
+  private hoveredCompId: string | null = null;
   private particleGeom = new THREE.SphereGeometry(0.068, 10, 10);
 
   constructor(container: HTMLElement, callbacks: EngineCallbacks) {
@@ -177,6 +181,7 @@ export class Workbench3DEngine {
     // Event bindings
     const dom = this.renderer.domElement;
     dom.addEventListener('pointerdown', this.handlePointerDown);
+    dom.addEventListener('pointerleave', this.handlePointerLeave);
     window.addEventListener('pointermove', this.handlePointerMove);
     window.addEventListener('pointerup', this.handlePointerUp);
     window.addEventListener('keydown', this.handleKeyDown);
@@ -267,7 +272,18 @@ export class Workbench3DEngine {
     }
   };
 
+  private handlePointerLeave = () => {
+    if (this.hoveredCompId !== null) {
+      this.hoveredCompId = null;
+      this.callbacks.onHoverComponentChange?.(null);
+    }
+  };
+
   private handlePointerDown = (e: PointerEvent) => {
+    if (this.hoveredCompId !== null) {
+      this.hoveredCompId = null;
+      this.callbacks.onHoverComponentChange?.(null);
+    }
     if (e.button !== 0) return;
     this.updateNdc(e.clientX, e.clientY);
     this.raycaster.setFromCamera(this.pointerNdc, this.camera);
@@ -342,6 +358,10 @@ export class Workbench3DEngine {
 
     // Dragging a component on ground plane
     if (this.dragCompId) {
+      if (this.hoveredCompId !== null) {
+        this.hoveredCompId = null;
+        this.callbacks.onHoverComponentChange?.(null);
+      }
       const dist = Math.hypot(e.clientX - this.dragStartClient.x, e.clientY - this.dragStartClient.y);
       if (dist > 4) {
         if (!this.dragCommittedHistory) {
@@ -371,6 +391,16 @@ export class Workbench3DEngine {
       this.callbacks.onHoverPinChange(hitPin);
     }
 
+    if (e.target !== this.renderer.domElement || this.wiringDragStartedFrom) {
+      if (this.hoveredCompId !== null) {
+        this.hoveredCompId = null;
+        this.callbacks.onHoverComponentChange?.(null);
+      }
+      if (e.target !== this.renderer.domElement) {
+        return;
+      }
+    }
+
     if (hitPin) {
       const comp = state.components.find((c) => c.id === hitPin.componentId);
       if (comp) {
@@ -379,10 +409,20 @@ export class Workbench3DEngine {
         this.snapIndicator.visible = true;
       }
       this.renderer.domElement.style.cursor = 'crosshair';
+      if (this.hoveredCompId !== null) {
+        this.hoveredCompId = null;
+        this.callbacks.onHoverComponentChange?.(null);
+      }
     } else {
       this.snapIndicator.visible = false;
       const hitComp = this.raycastComponent();
       this.renderer.domElement.style.cursor = hitComp ? 'grab' : 'default';
+      if (hitComp !== this.hoveredCompId) {
+        this.hoveredCompId = hitComp;
+        this.callbacks.onHoverComponentChange?.(
+          hitComp ? { componentId: hitComp, clientX: e.clientX, clientY: e.clientY } : null
+        );
+      }
     }
 
     // Update wire preview curve if wiring is active
@@ -686,6 +726,7 @@ export class Workbench3DEngine {
     this.resizeObserver.disconnect();
     const dom = this.renderer.domElement;
     dom.removeEventListener('pointerdown', this.handlePointerDown);
+    dom.removeEventListener('pointerleave', this.handlePointerLeave);
     window.removeEventListener('pointermove', this.handlePointerMove);
     window.removeEventListener('pointerup', this.handlePointerUp);
     window.removeEventListener('keydown', this.handleKeyDown);

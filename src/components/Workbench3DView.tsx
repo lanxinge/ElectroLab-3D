@@ -13,6 +13,7 @@ import type { ComponentType, PinRef } from '../../shared/types';
 import { COMPONENT_CATALOG, WIRE_COLORS } from '../engine/componentCatalog';
 import { Workbench3DEngine, type ProjectedLabel } from '../sim3d/Workbench3DEngine';
 import { useCircuitStore } from '../store/useCircuitStore';
+import { usePonderStore } from '../store/usePonderStore';
 
 export const Workbench3DView: React.FC = () => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +73,25 @@ export const Workbench3DView: React.FC = () => {
         onSetWiringDraft: (pin) => useCircuitStore.getState().setWiringDraftFrom(pin),
         onCompleteWire: (from, to) => useCircuitStore.getState().addWire(from, to),
         onHoverPinChange: (pin) => setHoverPin(pin),
+        onHoverComponentChange: (hit) => {
+          const ponder = usePonderStore.getState();
+          if (!hit) {
+            ponder.clearHoverIfSource('3d');
+            return;
+          }
+          const comp = useCircuitStore
+            .getState()
+            .components.find((c) => c.id === hit.componentId);
+          if (!comp) return;
+          ponder.setHoveredTarget({
+            type: comp.type,
+            label: `${COMPONENT_CATALOG[comp.type].name} (${comp.label})`,
+            componentId: comp.id,
+            source: '3d',
+            anchorX: hit.clientX,
+            anchorY: hit.clientY,
+          });
+        },
         onLabelsUpdated: (labels: ProjectedLabel[]) => {
           for (const lbl of labels) {
             const dom = labelDomMap.current.get(lbl.id);

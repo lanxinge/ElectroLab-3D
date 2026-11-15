@@ -23,6 +23,7 @@ import {
   getPinWorld2D,
 } from '../engine/componentCatalog';
 import { useCircuitStore, type SchematicTheme } from '../store/useCircuitStore';
+import { usePonderStore } from '../store/usePonderStore';
 
 function computeOrthogonalPath(
   p1: { x: number; y: number },
@@ -958,6 +959,7 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
                   transform={`translate(${c.pos2d.x}, ${c.pos2d.y})`}
                   onPointerDown={(e) => {
                     e.stopPropagation();
+                    usePonderStore.getState().clearHoverIfSource('2d');
                     setSelected({ kind: 'component', id: c.id });
                     const pt = clientToSvg(e.clientX, e.clientY);
                     setDragState({
@@ -970,6 +972,18 @@ export const Schematic2DSidebar: React.FC<{ onExpandToggle?: () => void }> = ({
                       moved: false,
                     });
                   }}
+                  onMouseEnter={(e) => {
+                    if (dragState) return;
+                    usePonderStore.getState().setHoveredTarget({
+                      type: c.type,
+                      label: `${spec.name} (${c.label})`,
+                      componentId: c.id,
+                      source: '2d',
+                      anchorX: e.clientX,
+                      anchorY: e.clientY,
+                    });
+                  }}
+                  onMouseLeave={() => usePonderStore.getState().clearHoverIfSource('2d')}
                   className="cursor-move"
                 >
                   {(isSel || tel?.overloaded) && (
