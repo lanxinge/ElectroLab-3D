@@ -28,13 +28,15 @@ export const TutorialWorkspace: React.FC<{
   );
   const switchDt = Math.max(0, simTime - transientAnchor.t0);
   const timeScale = useCircuitStore((s) => s.timeScale);
-  const sidebarMode = useCircuitStore((s) => s.sidebarMode);
+  const componentCount = useCircuitStore((s) => s.components.length);
+  const viewPreference = useTutorialStore((s) => s.viewPreference);
+  const sidebarMode = viewPreference === 'auto' ? (componentCount >= 12 ? '2d-only' : 'split') : viewPreference;
 
   const toggleRunning = useCircuitStore((s) => s.toggleRunning);
   const resetSimulationTime = useCircuitStore((s) => s.resetSimulationTime);
   const stepOnce = useCircuitStore((s) => s.stepOnce);
   const setTimeScale = useCircuitStore((s) => s.setTimeScale);
-  const setSidebarMode = useCircuitStore((s) => s.setSidebarMode);
+  const setSidebarMode = useTutorialStore((s) => s.setViewPreference);
 
   const inspectorOpen = useTutorialStore((s) => s.inspectorOpen);
   const setInspectorOpen = useTutorialStore((s) => s.setInspectorOpen);
@@ -50,7 +52,7 @@ export const TutorialWorkspace: React.FC<{
       {/* Right Workbench Column: Transport Bar + 3D/2D Split + Bottom Analysis Dock */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Compact Tutorial Transport & View Bar */}
-        <div className="h-10 px-3 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 text-xs">
+        <div className="min-h-10 py-1.5 px-3 bg-slate-900/95 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
           <div className="flex items-center gap-1.5 min-w-0">
             <div className="flex items-center bg-slate-950 border border-slate-800 rounded-md p-0.5">
               <button
@@ -123,17 +125,18 @@ export const TutorialWorkspace: React.FC<{
             <div className="flex items-center bg-slate-950 border border-slate-800 rounded-md p-0.5 text-[11px]">
               {(
                 [
+                  ['auto', '自动视图'],
                   ['split', '3D+2D'],
                   ['3d-only', '纯3D'],
                   ['2d-only', '纯2D'],
-                ] as [SidebarMode, string][]
+                ] as ['auto' | SidebarMode, string][]
               ).map(([mode, label]) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => setSidebarMode(mode)}
                   className={`px-2 py-0.5 rounded transition ${
-                    sidebarMode === mode
+                    viewPreference === mode
                       ? 'bg-sky-500/25 text-sky-300 font-semibold'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
@@ -160,7 +163,10 @@ export const TutorialWorkspace: React.FC<{
             <button
               type="button"
               data-testid="tutorial-keep-exit-btn"
-              onClick={() => onExitToSimulator(true)}
+              onClick={() => {
+                useCircuitStore.getState().setSidebarMode(sidebarMode);
+                onExitToSimulator(true);
+              }}
               className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-600/25 hover:bg-emerald-600/40 text-emerald-200 border border-emerald-500/40 text-[11px] font-medium"
             >
               <ArrowUpRight className="w-3 h-3" />
@@ -179,7 +185,7 @@ export const TutorialWorkspace: React.FC<{
               className={
                 sidebarMode === '2d-only'
                   ? 'flex-1 min-w-0 flex flex-col bg-slate-900/95'
-                  : 'w-[356px] shrink-0 flex flex-col border-l border-slate-800 bg-slate-900/95'
+                  : 'w-[40%] min-w-[260px] max-w-[440px] shrink-0 flex flex-col border-l border-slate-800 bg-slate-900/95'
               }
             >
               <Schematic2DSidebar
@@ -214,7 +220,7 @@ export const TutorialWorkspace: React.FC<{
         </div>
 
         {/* Bottom Dock: Live Telemetry / AC RMS & PF / Oscilloscope */}
-        <BottomAnalysisDock heightPx={190} />
+        <BottomAnalysisDock heightPx={230} />
       </div>
     </div>
   );

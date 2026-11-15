@@ -1,6 +1,7 @@
 import type { CircuitComponent, CircuitData, Wire } from '../../shared/types';
 import { getComponentPins, world2dTo3d } from './componentCatalog';
-import { createInitialRuntimeState, solveCircuitStep } from './mnaSolver';
+import { solveCircuitStep } from './mnaSolver';
+import { createInitialRuntimeState } from './circuitModels';
 
 export interface LogicInputVar {
   id: string;

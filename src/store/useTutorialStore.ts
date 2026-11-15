@@ -1,11 +1,12 @@
 import { create } from 'zustand';
-import type { CircuitComponent, Wire } from '../../shared/types';
 import { getLessonById, TUTORIAL_LESSONS } from '../tutorial/curriculumIndex';
 import type { TutorialCircuitStage, TutorialEvalContext } from '../tutorial/tutorialTypes';
 import { useCircuitStore, type SidebarMode } from './useCircuitStore';
 import { useUIStore } from './useUIStore';
+import { captureWorkbench, restoreWorkbench, type WorkbenchSnapshot } from './workbenchSnapshot';
 
 const COMPLETED_STORAGE_KEY = 'electrolab_tutorial_completed_v1';
+const LOCATION_STORAGE_KEY = 'electrolab_tutorial_location_v1';
 
 const memoryStorage: Record<string, string> = {};
 
@@ -36,7 +37,8 @@ function loadInitialCompleted(): string[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+    const validIds = new Set(TUTORIAL_LESSONS.flatMap(l => l.stages.map(s => s.id)));
+    return Array.isArray(parsed) ? [...new Set(parsed.filter((x): x is string => typeof x === 'string' && validIds.has(x)))] : [];
   } catch {
     return [];
   }
@@ -49,14 +51,20 @@ function cloneItems<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-interface FreePlaySnapshot {
-  projectTitle: string;
-  activePresetId: string | null;
-  components: CircuitComponent[];
-  wires: Wire[];
-  timeScale: number;
-  sidebarMode: SidebarMode;
+function readLocation(): { lessonId: string; stageIndex: number } {
+  try {
+    const saved = JSON.parse(safeReadStorage(LOCATION_STORAGE_KEY) ?? 'null');
+    const lesson = TUTORIAL_LESSONS.find(l => l.id === saved?.lessonId);
+    if (lesson && Number.isInteger(saved.stageIndex) && lesson.stages[saved.stageIndex]) return saved;
+  } catch { /* 损坏的进度记录回到第一课，不影响学习。 */ }
+  return { lessonId: TUTORIAL_LESSONS[0].id, stageIndex: 0 };
 }
+
+function saveLocation(lessonId: string, stageIndex: number): void {
+  safeWriteStorage(LOCATION_STORAGE_KEY, JSON.stringify({ lessonId, stageIndex }));
+}
+
+const initialLocation = readLocation();
 
 interface TutorialStoreState {
   isActive: boolean;
@@ -66,7 +74,9 @@ interface TutorialStoreState {
   catalogOpen: boolean;
   inspectorOpen: boolean;
   preferredVolume: 'all' | 'vol1' | 'vol2';
-  freePlaySnapshot: FreePlaySnapshot | null;
+  freePlaySnapshot: WorkbenchSnapshot | null;
+  viewPreference: 'auto' | SidebarMode;
+  setViewPreference: (view: 'auto' | SidebarMode) => void;
 
   enterTutorial: (lessonId?: string, stageIndex?: number, volume?: 'all' | 'vol1' | 'vol2') => void;
   setPreferredVolume: (volume: 'all' | 'vol1' | 'vol2') => void;
@@ -128,30 +138,21 @@ function advanceCircuitBySeconds(seconds: number): void {
 
 export const useTutorialStore = create<TutorialStoreState>((set, get) => ({
   isActive: false,
-  currentLessonId: TUTORIAL_LESSONS[0].id,
-  currentStageIndex: 0,
+  currentLessonId: initialLocation.lessonId,
+  currentStageIndex: initialLocation.stageIndex,
   completedStageIds: loadInitialCompleted(),
   catalogOpen: false,
   inspectorOpen: false,
   preferredVolume: 'all',
   freePlaySnapshot: null,
+  viewPreference: 'auto',
+  setViewPreference: (viewPreference) => set({ viewPreference }),
 
   setPreferredVolume: (preferredVolume) => set({ preferredVolume }),
 
   enterTutorial: (lessonIdArg, stageIndexArg, volumeArg) => {
     const curState = get();
-    const circuitSnap = useCircuitStore.getState();
-
-    const snapshot: FreePlaySnapshot | null = curState.isActive
-      ? curState.freePlaySnapshot
-      : {
-          projectTitle: circuitSnap.projectTitle,
-          activePresetId: circuitSnap.activePresetId,
-          components: cloneItems(circuitSnap.components),
-          wires: cloneItems(circuitSnap.wires),
-          timeScale: circuitSnap.timeScale,
-          sidebarMode: circuitSnap.sidebarMode,
-        };
+    const snapshot = curState.isActive ? curState.freePlaySnapshot : captureWorkbench();
 
     const fallbackLessonId =
       volumeArg === 'vol1'
@@ -161,9 +162,10 @@ export const useTutorialStore = create<TutorialStoreState>((set, get) => ({
         : curState.currentLessonId;
     const targetLesson = getLessonById(lessonIdArg ?? fallbackLessonId);
     const maxStageIdx = Math.max(0, targetLesson.stages.length - 1);
-    const rawIdx = stageIndexArg ?? (lessonIdArg || volumeArg ? 0 : curState.currentStageIndex);
+    const rawIdx = stageIndexArg ?? (lessonIdArg || (volumeArg && volumeArg !== 'all') ? 0 : curState.currentStageIndex);
     const clampedIdx = Math.max(0, Math.min(maxStageIdx, rawIdx));
     const stage = targetLesson.stages[clampedIdx];
+    saveLocation(targetLesson.id, clampedIdx);
 
     set({
       isActive: true,
@@ -192,24 +194,8 @@ export const useTutorialStore = create<TutorialStoreState>((set, get) => ({
     circuitStore.setTutorialHighlights([], [], null);
 
     if (!keepCurrentCircuit && snap) {
-      circuitStore.loadCircuit(
-        {
-          components: cloneItems(snap.components),
-          wires: cloneItems(snap.wires),
-        },
-        snap.projectTitle,
-        snap.activePresetId,
-        {
-          timeScale: snap.timeScale,
-          isRunning: true,
-          highlightedIds: [],
-          newlyAddedIds: [],
-          preferredAnalysisTab: 'telemetry',
-        }
-      );
-      circuitStore.setSidebarMode(snap.sidebarMode);
+      restoreWorkbench(snap);
     } else {
-      circuitStore.setTimeScale(1);
       if (circuitStore.oscilloscopeChannels.length > 0) {
         useUIStore.getState().setAnalysisOpen(true);
       }
@@ -220,6 +206,7 @@ export const useTutorialStore = create<TutorialStoreState>((set, get) => ({
     const lesson = getLessonById(lessonId);
     const clamped = Math.max(0, Math.min(lesson.stages.length - 1, stageIndex));
     const stage = lesson.stages[clamped];
+    saveLocation(lesson.id, clamped);
     set({
       isActive: true,
       currentLessonId: lesson.id,
@@ -235,6 +222,7 @@ export const useTutorialStore = create<TutorialStoreState>((set, get) => ({
     const lesson = getLessonById(get().currentLessonId);
     const clamped = Math.max(0, Math.min(lesson.stages.length - 1, stageIndex));
     const stage = lesson.stages[clamped];
+    saveLocation(lesson.id, clamped);
     set({ currentStageIndex: clamped });
     if (stage) {
       loadStageIntoWorkbench(stage);

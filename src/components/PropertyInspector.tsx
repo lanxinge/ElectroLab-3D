@@ -2,7 +2,7 @@ import React from 'react';
 import { Activity, AlertTriangle, Cpu, Flame, PackagePlus, RotateCw, SlidersHorizontal, Sparkles, Trash2, Zap } from 'lucide-react';
 import { COMPONENT_CATALOG, formatEngineeringValue } from '../engine/componentCatalog';
 import { parseCustomIcPayload, parseTruthChipConfig } from '../engine/customIcEngine';
-import { encodeRamHex, parseRamInitHex } from '../engine/mnaSolver';
+import { encodeRamHex, parseRamInitHex } from '../engine/circuitModels';
 import { useCircuitStore } from '../store/useCircuitStore';
 import { usePonderStore } from '../store/usePonderStore';
 import { useUIStore } from '../store/useUIStore';

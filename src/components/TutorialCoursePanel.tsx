@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
   CheckCircle2,
@@ -24,6 +24,7 @@ import {
 } from '../tutorial/curriculumIndex';
 
 export const TutorialCoursePanel: React.FC = () => {
+  const contentRef = useRef<HTMLDivElement>(null);
   const currentLessonId = useTutorialStore((s) => s.currentLessonId);
   const currentStageIndex = useTutorialStore((s) => s.currentStageIndex);
   const completedStageIds = useTutorialStore((s) => s.completedStageIds);
@@ -63,6 +64,7 @@ export const TutorialCoursePanel: React.FC = () => {
   const lesson = getLessonById(currentLessonId);
   const chapter = getChapterById(lesson.chapterId);
   const stage = lesson.stages[currentStageIndex] ?? lesson.stages[0];
+  useEffect(() => { contentRef.current?.scrollTo({ top: 0 }); }, [stage.id]);
 
   const evalCtx = useMemo(
     () => ({
@@ -118,7 +120,7 @@ export const TutorialCoursePanel: React.FC = () => {
   return (
     <aside
       data-testid="tutorial-course-panel"
-      className="w-[348px] shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col min-h-0 relative select-none"
+      className="w-[320px] xl:w-[348px] max-w-[42vw] shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col min-h-0 relative select-none"
     >
       {/* Inline Catalog Drawer Overlay */}
       {catalogOpen && (
@@ -290,7 +292,7 @@ export const TutorialCoursePanel: React.FC = () => {
       </div>
 
       {/* Scrollable Instructional Content */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
+      <div ref={contentRef} className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
         {/* Stage Title + Goal */}
         <div className="rounded-lg bg-slate-950 border border-slate-800 p-2.5 space-y-1.5">
           <div className="flex items-center justify-between gap-2">
@@ -304,10 +306,11 @@ export const TutorialCoursePanel: React.FC = () => {
           <div className="text-[11px] text-sky-300 bg-sky-500/10 border border-sky-500/25 rounded px-2 py-1 leading-relaxed">
             核心目标：{stage.conceptGoal}
           </div>
-          <p className="text-[11px] text-slate-300 leading-relaxed">{stage.explanation}</p>
-          <div className="text-[11px] text-amber-200/90 bg-amber-500/10 border border-amber-500/25 rounded px-2 py-1 leading-relaxed">
-            直观类比：{stage.analogy}
-          </div>
+          <details key={stage.id} className="text-[11px] text-slate-300 leading-relaxed">
+            <summary className="cursor-pointer py-1 text-sky-300 hover:text-sky-200">展开原理讲解与直观类比</summary>
+            <p className="mt-1">{stage.explanation}</p>
+            <p className="mt-2 text-amber-200/90 bg-amber-500/10 rounded px-2 py-1">直观类比：{stage.analogy}</p>
+          </details>
         </div>
 
         {/* Highlight / Newly Added Components */}
@@ -476,13 +479,13 @@ export const TutorialCoursePanel: React.FC = () => {
                 key={row.id}
                 className={`rounded-lg border p-2 space-y-0.5 ${badgeStyle}`}
               >
-                <div className="flex items-center justify-between gap-1 text-[10px] text-slate-400">
+                <div className="space-y-1 text-[10px] text-slate-400">
                   <span>{row.title}</span>
-                  <span className="font-mono text-slate-300">{row.formula}</span>
+                  <div className="font-mono text-slate-300 break-words">{row.formula}</div>
                 </div>
-                <div className="flex items-center justify-between gap-2 text-[11px]">
-                  <span className="text-slate-300 truncate">{row.evalRes.expression}</span>
-                  <span className="font-mono font-bold shrink-0">{row.evalRes.result}</span>
+                <div className="space-y-1 text-[11px]">
+                  <div className="text-slate-300 break-words">{row.evalRes.expression}</div>
+                  <div className="font-mono font-bold break-words">{row.evalRes.result}</div>
                 </div>
               </div>
             );
@@ -581,9 +584,9 @@ export const TutorialCoursePanel: React.FC = () => {
                     }`}
                   >
                     {isLivePassed
-                      ? '达标运行中 ✓'
+                      ? '当前条件达标 ✓'
                       : isStageCompleted
-                      ? '自由调节 / 脉冲已结束（通关已保留）'
+                      ? '当前条件未达标 · 完成记录已保留'
                       : '待达标'}
                   </span>
                 </div>

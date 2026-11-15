@@ -5,7 +5,7 @@ import type {
   ComponentType,
   Wire,
 } from '../../shared/types';
-import type { WaveformEdgeStats } from '../engine/mnaSolver';
+import type { WaveformEdgeStats } from '../engine/circuitModels';
 import type { AnalysisTab } from '../store/useCircuitStore';
 
 export type TutorialDifficulty = '入门' | '基础' | '进阶' | '综合';

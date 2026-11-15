@@ -11,11 +11,8 @@ import {
   packageCircuitAsIc,
   validateBooleanExpression,
 } from '../src/engine/customIcEngine';
-import {
-  advanceCircuitSimulation,
-  createInitialRuntimeState,
-  solveCircuitStep,
-} from '../src/engine/mnaSolver';
+import { advanceCircuitSimulation, solveCircuitStep } from '../src/engine/mnaSolver';
+import { createInitialRuntimeState } from '../src/engine/circuitModels';
 import { CIRCUIT_PRESETS } from '../src/presets/circuitPresets';
 import { parseProjectFile, serializeProjectFile } from '../src/utils/projectFileIO';
 import { useUIStore } from '../src/store/useUIStore';

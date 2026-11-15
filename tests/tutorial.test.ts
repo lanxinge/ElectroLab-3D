@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { COMPONENT_CATALOG, getComponentPins } from '../src/engine/componentCatalog';
-import { advanceCircuitSimulation, createInitialRuntimeState } from '../src/engine/mnaSolver';
+import { advanceCircuitSimulation } from '../src/engine/mnaSolver';
+import { createInitialRuntimeState } from '../src/engine/circuitModels';
 import {
   computeNiceScaleBound,
   formatScopeAxisTick,

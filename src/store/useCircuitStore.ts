@@ -15,12 +15,8 @@ import {
   world3dTo2d,
 } from '../engine/componentCatalog';
 import { getDefaultTruthChipConfig } from '../engine/customIcEngine';
-import {
-  advanceCircuitSimulation,
-  createInitialRuntimeState,
-  solveCircuitStep,
-  type SimulationRuntimeState,
-} from '../engine/mnaSolver';
+import { advanceCircuitSimulation, solveCircuitStep } from '../engine/mnaSolver';
+import { createInitialRuntimeState, type SimulationRuntimeState } from '../engine/circuitModels';
 import { extractScopeSampleValue } from '../engine/scopeChannelMeta';
 import { CIRCUIT_PRESETS } from '../presets/circuitPresets';
 

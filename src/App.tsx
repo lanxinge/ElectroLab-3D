@@ -24,7 +24,8 @@ import { TruthChipEditorModal } from './components/TruthChipEditorModal';
 import { PackageIcModal } from './components/PackageIcModal';
 import { TutorialWorkspace } from './components/TutorialWorkspace';
 import { useTutorialStore } from './store/useTutorialStore';
-import { parseProjectFile } from './utils/projectFileIO';
+import { parseCircuitData, parseProjectFile } from './utils/projectFileIO';
+import type { CircuitData } from '../shared/types';
 
 export function App() {
   const [activeView, setActiveView] = useState<'home' | 'simulator' | 'tutorial' | 'forum'>('home');
@@ -86,6 +87,15 @@ export function App() {
   const handleOpenTutorialFromHome = (lessonId?: string, volume: 'all' | 'vol1' | 'vol2' = 'all') => {
     useTutorialStore.getState().enterTutorial(lessonId, lessonId ? 0 : undefined, volume);
     setActiveView('tutorial');
+  };
+
+  // 先结束教学上下文，再载入新工程，避免退出教学时覆盖刚打开的电路。
+  const handleOpenProject = (circuit: CircuitData, title: string) => {
+    const validCircuit = parseCircuitData(circuit);
+    if (useTutorialStore.getState().isActive) useTutorialStore.getState().exitTutorial(false);
+    loadCircuit(validCircuit, title, null);
+    setShowProjectsModal(false);
+    setActiveView('simulator');
   };
 
   const startResize = (
@@ -263,7 +273,7 @@ export function App() {
           onDrop={handleWorkspaceDrop}
         >
           {/* Full-screen uncluttered 3D workbench */}
-          <Workbench3DView />
+          {sidebarMode === '2d-only' ? <Schematic2DSidebar /> : <Workbench3DView />}
 
           {/* Floating Palette Drawer */}
           {paletteOpen && (
@@ -331,7 +341,7 @@ export function App() {
           )}
 
           {/* Coordinated Non-Overlapping Right Drawers (Inspector + 2D Schematic) */}
-          {(inspectorOpen || schematicOpen) && (
+          {(inspectorOpen || (schematicOpen && sidebarMode !== '2d-only')) && (
             <div
               data-testid="floating-right-column"
               style={{
@@ -392,7 +402,7 @@ export function App() {
                 </div>
               )}
 
-              {schematicOpen && (
+              {schematicOpen && sidebarMode !== '2d-only' && (
                 <div
                   data-testid="floating-schematic-drawer"
                   className="pointer-events-auto flex-1 min-h-[160px] rounded-2xl border border-slate-700/80 bg-slate-900/95 backdrop-blur-xl shadow-2xl overflow-hidden flex flex-col"
@@ -475,6 +485,7 @@ export function App() {
       {showProjectsModal && (
         <MyProjectsModal
           onClose={() => setShowProjectsModal(false)}
+          onLoadProject={handleOpenProject}
           onOpenAuth={() => {
             setShowProjectsModal(false);
             openAuth('login');

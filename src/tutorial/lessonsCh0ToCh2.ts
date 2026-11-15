@@ -663,7 +663,7 @@ export const LESSONS_CH0_TO_CH2: TutorialLesson[] = [
             kind: 'slider',
             min: 47,
             max: 470,
-            step: 10,
+            step: 1,
             unit: 'Ω',
           },
         ],

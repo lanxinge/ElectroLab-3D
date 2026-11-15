@@ -1,28 +1,11 @@
 import React from 'react';
-import {
-  Activity,
-  ArrowRight,
-  BookOpen,
-  Cpu,
-  FolderKanban,
-  GraduationCap,
-  Layers,
-  Lightbulb,
-  LogIn,
-  MessageSquareText,
-  Play,
-  Sparkles,
-  UserCheck,
-  UserPlus,
-  Waves,
-  Zap,
-} from 'lucide-react';
+import { ArrowRight, BookOpen, CircuitBoard, Cpu, Play, Sparkles, Waves } from 'lucide-react';
 import { COMPONENT_CATALOG } from '../engine/componentCatalog';
 import { CIRCUIT_PRESETS } from '../presets/circuitPresets';
-import { useAuthStore } from '../store/useAuthStore';
 import { useCircuitStore } from '../store/useCircuitStore';
-import { usePonderStore } from '../store/usePonderStore';
-import { TOTAL_TUTORIAL_STAGES, TUTORIAL_CHAPTERS, TUTORIAL_LESSONS } from '../tutorial/curriculumIndex';
+import { useTutorialStore } from '../store/useTutorialStore';
+import { useUIStore } from '../store/useUIStore';
+import { getLessonById, TOTAL_TUTORIAL_STAGES, TUTORIAL_CHAPTERS, TUTORIAL_LESSONS } from '../tutorial/curriculumIndex';
 
 interface LandingHomeViewProps {
   onOpenWorkbench: () => void;
@@ -32,365 +15,69 @@ interface LandingHomeViewProps {
   onOpenProjects: () => void;
 }
 
-const FEATURED_PRESET_IDS = [
-  'preset-ac-nixie-encoder',
-  'preset-turing-4bit-cpu',
-  'preset-rc-transient',
-  'preset-opamp-inverting',
+const highlights = [
+  { id: 'ch3-rc-transient', name: '看见电容充放电', detail: '拨动开关，把电压曲线与时间常数联系起来。', icon: Waves, color: 'text-sky-300' },
+  { id: 'ch13-timer-555-pulse-circuits', name: '让电路自己产生节拍', detail: '从双门限到单稳脉冲，亲手调出 555 方波。', icon: Cpu, color: 'text-violet-300' },
+  { id: 'ch13-dac-conversion', name: '把数字变成电压', detail: '改变二进制输入，观察 DAC 合成阶梯波。', icon: CircuitBoard, color: 'text-emerald-300' },
 ];
+const featuredIds = ['preset-rc-transient', 'preset-opamp-inverting', 'preset-ac-nixie-encoder', 'preset-turing-4bit-cpu'];
 
-export const LandingHomeView: React.FC<LandingHomeViewProps> = ({
-  onOpenWorkbench,
-  onOpenTutorial,
-  onOpenForum,
-  onOpenAuth,
-  onOpenProjects,
-}) => {
-  const user = useAuthStore((s) => s.user);
-  const loadCircuit = useCircuitStore((s) => s.loadCircuit);
-  const openPonder = usePonderStore((s) => s.openPonder);
-
-  const moduleCount = Object.keys(COMPONENT_CATALOG).length;
-  const vol1Count = TUTORIAL_CHAPTERS.filter((c) => c.volume === 'vol1').length;
-  const vol2Count = TUTORIAL_CHAPTERS.filter((c) => c.volume === 'vol2').length;
-
-  const featuredPresets = FEATURED_PRESET_IDS.map((id) =>
-    CIRCUIT_PRESETS.find((p) => p.id === id)
-  ).filter((p): p is NonNullable<typeof p> => Boolean(p));
-
-  const handleLaunchPreset = (presetId: string) => {
-    const preset = CIRCUIT_PRESETS.find((p) => p.id === presetId);
+export const LandingHomeView: React.FC<LandingHomeViewProps> = ({ onOpenWorkbench, onOpenTutorial, onOpenForum, onOpenProjects }) => {
+  const lessonId = useTutorialStore(s => s.currentLessonId);
+  const stageIndex = useTutorialStore(s => s.currentStageIndex);
+  const completed = useTutorialStore(s => s.completedStageIds);
+  const lesson = getLessonById(lessonId);
+  const hasProgress = completed.length > 0 || lessonId !== TUTORIAL_LESSONS[0].id || stageIndex > 0;
+  const launchPreset = (id: string) => {
+    const preset = CIRCUIT_PRESETS.find(p => p.id === id);
     if (!preset) return;
-    loadCircuit(structuredClone(preset.circuit), preset.title, preset.id, { isRunning: true });
+    useCircuitStore.getState().loadCircuit(structuredClone(preset.circuit), preset.title, preset.id, { isRunning: true });
+    useUIStore.getState().setAnalysisOpen(true);
     onOpenWorkbench();
   };
 
   return (
-    <div
-      data-testid="landing-home-view"
-      className="flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_top,_rgba(14,165,233,0.16),_transparent_58%)]"
-    >
-      <div className="max-w-7xl mx-auto px-5 py-6 space-y-6">
-        {/* Hero Banner */}
-        <section className="relative overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900/95 to-sky-950/50 p-6 md:p-7 shadow-2xl">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-            <div className="lg:col-span-8 space-y-4">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/15 border border-sky-500/30 text-sky-300 text-xs font-medium">
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                ElectroLab 3D · 虚实融合三维电路仿真与本科电工学教学平台
-              </div>
-
-              <h1 className="text-2xl md:text-3xl font-extrabold text-slate-50 tracking-tight leading-snug">
-                3D + 2D 联动电路工作场，从零基础原理到图灵完备 4 位微处理器
-              </h1>
-
-              <p className="text-sm text-slate-300 leading-relaxed max-w-3xl">
-                内置实时改进节点法 (MNA) 与数字事件混合求解引擎：既可在 3D 实验室与 2D 原理图分屏/悬浮模式自由搭接电路、观察 50Hz 交流双向光球与辉光灯管数码显示，也能通过 3D 思索剧场透视底层原理，或跟随上下册 {TUTORIAL_CHAPTERS.length} 章课程逐步通关。
-              </p>
-
-              {/* Direct Action Buttons */}
-              <div className="flex flex-wrap items-center gap-2.5 pt-1">
-                <button
-                  data-testid="home-cta-simulator"
-                  onClick={onOpenWorkbench}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-sm shadow-lg shadow-sky-500/20 transition"
-                >
-                  <Play className="w-4 h-4 fill-current" />
-                  立即进入 3D/2D 工作场
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-
-                {user ? (
-                  <button
-                    data-testid="home-cta-projects"
-                    onClick={onOpenProjects}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm shadow transition"
-                  >
-                    <FolderKanban className="w-4 h-4" />
-                    我的云端工程 ({user.displayName})
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      data-testid="home-cta-register"
-                      onClick={() => onOpenAuth('register')}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm shadow transition"
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      免费注册学生账号
-                    </button>
-                    <button
-                      data-testid="home-cta-login"
-                      onClick={() => onOpenAuth('login')}
-                      className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-medium text-sm transition"
-                    >
-                      <LogIn className="w-4 h-4 text-sky-400" />
-                      账号登录
-                    </button>
-                  </>
-                )}
-
-                <button
-                  data-testid="home-cta-tutorial"
-                  onClick={() => onOpenTutorial(undefined, 'all')}
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/40 text-amber-200 font-semibold text-sm transition"
-                >
-                  <GraduationCap className="w-4 h-4 text-amber-400" />
-                  零基础教学模式
-                </button>
-
-                <button
-                  data-testid="home-cta-forum"
-                  onClick={onOpenForum}
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-slate-200 font-medium text-sm transition"
-                >
-                  <MessageSquareText className="w-4 h-4 text-sky-400" />
-                  交流论坛
-                </button>
-              </div>
+    <main data-testid="landing-home-view" className="flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_80%_0%,_rgba(14,165,233,0.12),_transparent_55%)]">
+      <div className="max-w-6xl mx-auto px-6 sm:px-9 py-10 lg:py-14 space-y-10">
+        <section className="grid lg:grid-cols-[1.2fr_1fr] gap-10 items-center">
+          <div>
+            <div className="flex items-center gap-2 text-xs tracking-widest text-sky-300 font-semibold"><CircuitBoard className="w-4 h-4" /> ELECTROLAB 3D <span className="text-slate-500 tracking-normal">交互电路实验室</span></div>
+            <h1 className="mt-5 text-4xl sm:text-5xl xl:text-6xl font-bold leading-[1.2] tracking-tight">看见电路。<br /><span className="text-sky-300">理解原理。</span></h1>
+            <p className="mt-5 max-w-lg text-sm sm:text-base leading-relaxed text-slate-400">搭接电路、调节参数，让抽象公式变成眼前的变化。<br className="hidden sm:block" />在 3D 实验台与 2D 原理图之间，找到自己的理解方式。</p>
+            <div className="mt-7 flex flex-wrap gap-3">
+              <button data-testid="home-cta-tutorial" onClick={() => onOpenTutorial()} className="inline-flex items-center gap-2 rounded-xl bg-sky-400 hover:bg-sky-300 px-5 py-3 text-sm font-bold text-slate-950 transition"><Play className="w-4 h-4" />{hasProgress ? '继续学习' : '开始第一课'}<ArrowRight className="w-4 h-4" /></button>
+              <button data-testid="home-cta-simulator" onClick={onOpenWorkbench} className="rounded-xl border border-slate-700 hover:border-slate-500 bg-slate-900 px-5 py-3 text-sm text-slate-200 transition">进入自由实验台</button>
             </div>
-
-            {/* Right Stats Summary Card */}
-            <div className="lg:col-span-4 grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3.5">
-                <div className="text-xs text-slate-400 flex items-center gap-1.5">
-                  <Cpu className="w-3.5 h-3.5 text-sky-400" />
-                  器件与功能模块
-                </div>
-                <div className="mt-1 text-2xl font-extrabold text-sky-300 font-mono">
-                  {moduleCount} 类
-                </div>
-                <div className="mt-1 text-[11px] text-slate-400">
-                  含辉光管 / 编解码器 / 4位 CPU 全套组件
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3.5">
-                <div className="text-xs text-slate-400 flex items-center gap-1.5">
-                  <BookOpen className="w-3.5 h-3.5 text-amber-400" />
-                  体系化闯关课程
-                </div>
-                <div className="mt-1 text-2xl font-extrabold text-amber-300 font-mono">
-                  {TUTORIAL_CHAPTERS.length} 章 · {TOTAL_TUTORIAL_STAGES} 关
-                </div>
-                <div className="mt-1 text-[11px] text-slate-400">
-                  电工学上册 {vol1Count} 章 + 下册 {vol2Count} 章 ({TUTORIAL_LESSONS.length} 节)
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3.5">
-                <div className="text-xs text-slate-400 flex items-center gap-1.5">
-                  <Waves className="w-3.5 h-3.5 text-cyan-400" />
-                  抗混叠交流动效
-                </div>
-                <div className="mt-1 text-xl font-extrabold text-cyan-300 font-mono">
-                  50Hz+ 双向流
-                </div>
-                <div className="mt-1 text-[11px] text-slate-400">
-                  交流正弦往复穿梭 · 整流单向脉动智能区分
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3.5">
-                <div className="text-xs text-slate-400 flex items-center gap-1.5">
-                  <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  自定义与云端
-                </div>
-                <div className="mt-1 text-xl font-extrabold text-emerald-300 font-mono">
-                  LUT / 云端 IC
-                </div>
-                <div className="mt-1 text-[11px] text-slate-400">
-                  8/16 槽真值表 · 自由封装子电路同步云端
-                </div>
-              </div>
+            <p className="mt-3 text-xs text-slate-500">无需登录即可实验 · 工程可保存到本地</p>
+          </div>
+          <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 shadow-xl overflow-hidden">
+            <div className="flex justify-between items-center px-5 py-4 border-b border-slate-800"><span className="text-xs text-sky-200 flex items-center gap-2"><BookOpen className="w-4 h-4" />你的学习工作台</span><span className="font-mono text-xs text-slate-500">{completed.length} / {TOTAL_TUTORIAL_STAGES}</span></div>
+            {/* 原创电路示意：从操作到观察的学习过程。 */}
+            <svg viewBox="0 0 440 150" className="w-full h-40 text-sky-400" role="img" aria-label="电源、电阻和电容组成的充放电回路示意">
+              <defs><pattern id="home-grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#1e293b" /></pattern></defs><rect width="440" height="150" fill="url(#home-grid)" />
+              <g fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M70 53V35H160 M200 35H300V68 M300 83V122H70V96" opacity=".7" /><circle cx="70" cy="75" r="21" /><path d="M64 70H76 M70 64V76 M65 84H75" /><rect x="160" y="24" width="40" height="22" rx="3" /><path d="M281 69H319 M281 82H319" stroke="#34d399" /><path d="M335 112C345 108 350 54 370 45S402 41 415 41" stroke="#34d399" /></g>
+              <g fill="#94a3b8" fontSize="11" fontFamily="sans-serif"><text x="60" y="145">电源</text><text x="169" y="66">电阻</text><text x="280" y="145">电容</text><text x="348" y="135">观察变化</text></g>
+            </svg>
+            <div className="px-5 pb-5"><p className="text-[11px] text-slate-500">{hasProgress ? '上次学习到' : '从这里开始'}</p><p className="mt-1 text-sm font-semibold text-slate-200">{lesson.title}</p><p className="mt-1 text-xs text-slate-400">步骤 {stageIndex + 1} · {lesson.stages[stageIndex]?.title}</p>
+              <div className="mt-4 h-1.5 rounded-full bg-slate-800 overflow-hidden" role="progressbar" aria-label="课程完成进度" aria-valuenow={completed.length} aria-valuemin={0} aria-valuemax={TOTAL_TUTORIAL_STAGES}><div className="h-full bg-sky-400 transition-all" style={{ width: `${completed.length / TOTAL_TUTORIAL_STAGES * 100}%` }} /></div>
             </div>
           </div>
         </section>
-
-        {/* Core Platform Capabilities */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
-              <Zap className="w-4 h-4 text-sky-400" />
-              平台核心功能与教学特色
-            </h2>
-            <span className="text-xs text-slate-400">支持 3D 实验室 / 纯 2D 原理图 / 双屏协同</span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="rounded-xl bg-slate-900/90 border border-slate-800 p-4 space-y-2 hover:border-cyan-500/40 transition">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-cyan-300 flex items-center gap-1.5">
-                  <Waves className="w-4 h-4" />
-                  交流双向电流动效升级
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                  实时波形统计
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                50Hz/60Hz 交流导线不再因帧率混叠假死或停滞：基于一个完整工频周期内的交流有效值与过零反转判定，3D 能量球与 2D 虚线均以平滑正弦往复流清晰呈现，二极管半波整流支路仍保持单向直流推进。
-              </p>
-            </div>
-
-            <div className="rounded-xl bg-slate-900/90 border border-slate-800 p-4 space-y-2 hover:border-amber-500/40 transition">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-amber-300 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4" />
-                  辉光灯管与优先编解码模块
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                  显示与译码
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                全新建模 0–9 十进制玻璃辉光灯管（金属丝网罩、暖橙氖光晕与 BCD 消隐控制），搭配 4-2 优先编码器 (含 GS/EO 级联指示)、2-4 译码器与 4 位 2 选 1 多路选择器，直观展示编码到可视数字显示全链路。
-              </p>
-            </div>
-
-            <div className="rounded-xl bg-slate-900/90 border border-slate-800 p-4 space-y-2 hover:border-emerald-500/40 transition">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-emerald-300 flex items-center gap-1.5">
-                  <Cpu className="w-4 h-4" />
-                  图灵完备 4 位计算套件
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                  4-bit CPU
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                配齐 4 位寄存器 (<code className="text-emerald-200">REGISTER_4BIT</code>)、8 功能算术逻辑单元 (<code className="text-emerald-200">ALU_4BIT</code> 含 COUT/ZERO 标志位) 与支持界面十六进制改写的 <code className="text-emerald-200">16×4 RAM</code>，配合时钟与状态控制即可运行累加计数等图灵完备数据通路。
-              </p>
-            </div>
-
-            <div className="rounded-xl bg-slate-900/90 border border-slate-800 p-4 space-y-2.5 hover:border-sky-500/40 transition">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-sky-300 flex items-center gap-1.5">
-                  <GraduationCap className="w-4 h-4" />
-                  电工学上下册零基础教学
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30">
-                  {TUTORIAL_CHAPTERS.length} 章 {TOTAL_TUTORIAL_STAGES} 关
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                覆盖电位参考地、基尔霍夫、暂态三要素、谐振无功补偿、三相供电到下册二极管整流、BJT/MOS、运放、组合/时序数字逻辑与 NE555。支持一键切换上册或下册课程：
-              </p>
-              <div className="flex items-center gap-2 pt-0.5">
-                <button
-                  data-testid="home-jump-vol1"
-                  onClick={() => onOpenTutorial('ch0-loop-and-meters', 'vol1')}
-                  className="px-2.5 py-1 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 text-[11px] font-medium transition"
-                >
-                  开始上册学习
-                </button>
-                <button
-                  data-testid="home-jump-vol2"
-                  onClick={() => onOpenTutorial('ch7-diodes-and-rectifiers', 'vol2')}
-                  className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-medium transition"
-                >
-                  开始下册学习
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-xl bg-slate-900/90 border border-slate-800 p-4 space-y-2.5 hover:border-violet-500/40 transition">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-violet-300 flex items-center gap-1.5">
-                  <Lightbulb className="w-4 h-4" />
-                  MC 机械动力风格 3D 思索
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30">
-                  {moduleCount} 类全覆盖
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                工作台中鼠标悬停任意模块按 <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-200">W</kbd> 或点击“思索”，即可弹出独立 3D 原理动画与“解释当前元件”工作台联动参数。立即试看：
-              </p>
-              <div className="flex items-center gap-2 pt-0.5">
-                <button
-                  data-testid="home-ponder-nixie"
-                  onClick={() => openPonder('NIXIE_TUBE')}
-                  className="px-2.5 py-1 rounded-lg bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 text-violet-200 text-[11px] font-medium transition"
-                >
-                  思索：辉光灯管
-                </button>
-                <button
-                  data-testid="home-ponder-alu"
-                  onClick={() => openPonder('ALU_4BIT')}
-                  className="px-2.5 py-1 rounded-lg bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 text-violet-200 text-[11px] font-medium transition"
-                >
-                  思索：4 位 ALU
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-xl bg-slate-900/90 border border-slate-800 p-4 space-y-2 hover:border-indigo-500/40 transition">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-indigo-300 flex items-center gap-1.5">
-                  <Layers className="w-4 h-4" />
-                  工程持久化、真值芯片与社区
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                  本地 + 云端
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                支持本地导入/导出 <code className="text-indigo-200">.electrolab.json</code> 工程文件、8/16 槽真值表与逻辑表达式定制芯片、电路打包为云端集成模块、4 通道同步示波器及社区一键 Fork 复现实验。
-              </p>
-            </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 border-y border-slate-800/80 py-5">
+          {[[Object.keys(COMPONENT_CATALOG).length, '类交互器件'], [TUTORIAL_CHAPTERS.length, '章电工电子课程'], [TUTORIAL_LESSONS.length, '课渐进实验'], [TOTAL_TUTORIAL_STAGES, '个可操作步骤']].map(([n, label]) => <div key={label} className="flex items-baseline gap-2"><span className="text-2xl font-semibold text-slate-100 font-mono">{n}</span><span className="text-xs text-slate-500">{label}</span></div>)}
+        </div>
+        <section>
+          <div className="flex flex-wrap gap-3 items-end justify-between mb-4"><div><p className="text-xs text-sky-300 mb-1">先动手，再理解</p><h2 className="text-lg font-semibold">三个实验，认识这个实验室</h2></div><div className="flex gap-3 text-xs text-slate-400"><button data-testid="home-jump-vol1" onClick={() => onOpenTutorial('ch0-loop-and-meters', 'vol1')} className="hover:text-sky-300">上册 · 电路基础 →</button><button data-testid="home-jump-vol2" onClick={() => onOpenTutorial('ch7-diodes-and-rectifiers', 'vol2')} className="hover:text-sky-300">下册 · 模电数电 →</button></div></div>
+          <div className="grid md:grid-cols-3 gap-4">
+            {highlights.map(({ id, name, detail, icon: Icon, color }, i) => <button key={id} data-testid={`home-lesson-${id}`} onClick={() => onOpenTutorial(id)} className="group text-left rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-900 hover:border-slate-600 p-5 transition"><div className="flex justify-between items-center"><Icon className={`w-6 h-6 ${color}`} /><span className="text-xs font-mono text-slate-600">0{i + 1}</span></div><h3 className="mt-4 font-semibold text-sm">{name}</h3><p className="mt-2 text-xs leading-relaxed text-slate-400">{detail}</p><span className={`mt-4 inline-flex items-center gap-1 text-xs ${color}`}>开始实验<ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" /></span></button>)}
           </div>
         </section>
-
-        {/* Featured Presets Quick Launch */}
-        <section className="space-y-3 pb-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-emerald-400" />
-              精选实验直达工作场（点击即刻加载并运行）
-            </h2>
-            <button
-              onClick={onOpenWorkbench}
-              className="text-xs text-sky-400 hover:text-sky-300 font-medium inline-flex items-center gap-1 transition"
-            >
-              打开空白工作场
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            {featuredPresets.map((preset) => (
-              <button
-                key={preset.id}
-                data-testid={`home-preset-${preset.id}`}
-                onClick={() => handleLaunchPreset(preset.id)}
-                className="text-left rounded-xl bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 hover:border-sky-500/50 p-4 flex flex-col justify-between gap-3 transition group"
-              >
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30 font-medium">
-                      {preset.category}
-                    </span>
-                    <span className="text-[10px] text-slate-500 font-mono">
-                      {preset.circuit.components.length} 元件 · {preset.circuit.wires.length} 连线
-                    </span>
-                  </div>
-                  <div className="text-sm font-bold text-slate-100 group-hover:text-sky-300 transition">
-                    {preset.title}
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">
-                    {preset.description}
-                  </p>
-                </div>
-                <div className="inline-flex items-center gap-1 text-xs font-semibold text-sky-400 group-hover:translate-x-0.5 transition">
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  载入工作场并运行
-                </div>
-              </button>
-            ))}
-          </div>
+        <section>
+          <div className="flex justify-between items-center mb-4"><h2 className="text-lg font-semibold">自由探索</h2><button onClick={onOpenProjects} className="text-xs text-sky-300 hover:text-sky-200">打开我的工程 →</button></div>
+          <div className="grid sm:grid-cols-2 gap-3">{featuredIds.map(id => CIRCUIT_PRESETS.find(p => p.id === id)).filter(p => !!p).map(preset => <button key={preset.id} data-testid={`home-preset-${preset.id}`} onClick={() => launchPreset(preset.id)} className="flex items-center gap-4 text-left rounded-xl border border-slate-800 hover:border-slate-600 bg-slate-900/40 p-4 transition"><Sparkles className="w-5 h-5 text-slate-500 shrink-0" /><div className="min-w-0 flex-1"><p className="text-sm text-slate-200 truncate">{preset.title}</p><p className="text-xs text-slate-500 mt-1">{preset.category} · {preset.circuit.components.length} 个元件</p></div><ArrowRight className="w-4 h-4 text-slate-500 shrink-0" /></button>)}</div>
         </section>
+        <footer className="flex flex-wrap items-center justify-between gap-3 pb-4 text-xs text-slate-500"><span>ElectroLab 3D · 让理解，发生在每一次操作里。</span><button onClick={onOpenForum} className="hover:text-sky-300">去社区交流实验 →</button></footer>
       </div>
-    </div>
+    </main>
   );
 };

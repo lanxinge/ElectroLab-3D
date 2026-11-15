@@ -3,18 +3,19 @@ import { Download, FolderOpen, Save, Trash2, Upload, X } from 'lucide-react';
 import type { CircuitData, SavedProject } from '../../shared/types';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircuitStore } from '../store/useCircuitStore';
+import { downloadProjectFile, parseProjectFile } from '../utils/projectFileIO';
 
 export const MyProjectsModal: React.FC<{
   onClose: () => void;
   onOpenAuth: () => void;
-}> = ({ onClose, onOpenAuth }) => {
+  onLoadProject: (circuit: CircuitData, title: string) => void;
+}> = ({ onClose, onOpenAuth, onLoadProject }) => {
   const user = useAuthStore((s) => s.user);
   const apiFetch = useAuthStore((s) => s.apiFetch);
 
   const projectTitle = useCircuitStore((s) => s.projectTitle);
   const components = useCircuitStore((s) => s.components);
   const wires = useCircuitStore((s) => s.wires);
-  const loadCircuit = useCircuitStore((s) => s.loadCircuit);
 
   const [projects, setProjects] = useState<SavedProject[]>([]);
   const [loading, setLoading] = useState(false);
@@ -75,34 +76,21 @@ export const MyProjectsModal: React.FC<{
   };
 
   const handleExportJson = () => {
-    const blob = new Blob([JSON.stringify({ title: projectTitle, components, wires }, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${projectTitle || 'circuit'}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadProjectFile(projectTitle, { components, wires });
+    setSuccessMsg('工程已导出，可从项目库或工作台重新打开。');
   };
 
-  const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(String(reader.result)) as CircuitData & { title?: string };
-        if (!Array.isArray(parsed.components) || !Array.isArray(parsed.wires)) {
-          throw new Error('JSON 缺少 components 或 wires 数组');
-        }
-        loadCircuit({ components: parsed.components, wires: parsed.wires }, parsed.title || file.name);
-        onClose();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : '无效的电路 JSON 文件');
-      }
-    };
-    reader.readAsText(file);
+    setError(null);
+    try {
+      const parsed = parseProjectFile(await file.text());
+      onLoadProject(parsed.circuit, parsed.title);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '无法读取电路工程文件');
+    }
   };
 
   return (
@@ -113,7 +101,7 @@ export const MyProjectsModal: React.FC<{
             <FolderOpen className="w-4 h-4 text-sky-400" />
             <span>个人云端电路仓库与本地导入导出</span>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200">
+          <button onClick={onClose} aria-label="关闭项目库" className="text-slate-400 hover:text-slate-200">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -121,7 +109,7 @@ export const MyProjectsModal: React.FC<{
         <div className="p-5 overflow-y-auto space-y-5 text-xs">
           {/* Local JSON import/export */}
           <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-lg p-3">
-            <span className="text-slate-300">本地文件交换 (.json 电路网表)</span>
+            <span className="text-slate-300">本地工程 · .elab.json / .json</span>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleExportJson}
@@ -216,8 +204,8 @@ export const MyProjectsModal: React.FC<{
                       <div className="flex items-center gap-2 shrink-0">
                         <button
                           onClick={() => {
-                            loadCircuit(p.circuitData, p.title, null);
-                            onClose();
+                            try { onLoadProject(p.circuitData, p.title); }
+                            catch (err) { setError(err instanceof Error ? err.message : '加载工程失败'); }
                           }}
                           className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white"
                         >

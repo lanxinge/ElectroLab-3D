@@ -8,7 +8,7 @@
     "dev:server": "node --no-warnings --import tsx server/index.ts",
     "dev:client": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc --noEmit && vite build",
-    "start": "SET NODE_ENV=production&& node --no-warnings --import tsx server/index.ts",
+    "start": "node --no-warnings --import tsx server/start.ts",
     "test": "vitest run"
   },
   "dependencies": {

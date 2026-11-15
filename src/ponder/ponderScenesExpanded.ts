@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { evaluateAlu4Bit } from '../engine/mnaSolver';
+import { evaluateAlu4Bit } from '../engine/circuitModels';
 import {
   buildCopperTrack,
   buildCreatePedestal,
