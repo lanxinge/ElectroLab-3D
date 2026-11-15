@@ -1458,6 +1458,78 @@ export function buildComponentMesh(comp: CircuitComponent): ComponentMeshHandle 
       break;
     }
 
+    case 'TIMER_555': {
+      const chip = new THREE.Mesh(
+        new THREE.BoxGeometry(1.22, 0.3, 0.96),
+        new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.38, metalness: 0.22 })
+      );
+      chip.position.y = 0.23;
+      chip.castShadow = true;
+      tagHit(chip);
+      group.add(chip);
+
+      const stripe = new THREE.Mesh(
+        new THREE.BoxGeometry(1.16, 0.03, 0.1),
+        new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.65, roughness: 0.25 })
+      );
+      stripe.position.set(0, 0.385, -0.36);
+      group.add(stripe);
+
+      const notch = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.09, 0.09, 0.04, 14),
+        new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.85, roughness: 0.2 })
+      );
+      notch.position.set(-0.48, 0.375, -0.36);
+      group.add(notch);
+
+      for (const p of pins) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.08), leadMat);
+        leg.position.set(p.offset3d[0] * 0.72, 0.14, p.offset3d[2]);
+        group.add(leg);
+      }
+
+      const outLedMat = new THREE.MeshStandardMaterial({
+        color: 0x22c55e,
+        emissive: 0x22c55e,
+        emissiveIntensity: 0.15,
+      });
+      const outLed = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 12), outLedMat);
+      outLed.position.set(0.45, 0.4, 0.28);
+      group.add(outLed);
+
+      const { texture, canvas, ctx } = createTextTexture('#020617', '#fbbf24', 'NE555', 'OUT=0', 256, 160);
+      const topLabel = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.0, 0.62),
+        new THREE.MeshBasicMaterial({ map: texture })
+      );
+      topLabel.rotation.x = -Math.PI / 2;
+      topLabel.position.set(0, 0.388, 0.04);
+      tagHit(topLabel);
+      group.add(topLabel);
+
+      let lastDisp = '';
+      updateVisuals = (_c, tel) => {
+        const q = tel?.logicState ? 1 : 0;
+        const vOut = tel?.pinVoltages?.out ?? 0;
+        outLedMat.emissiveIntensity = q ? 1.5 : 0.1;
+        outLedMat.color.setHex(q ? 0x4ade80 : 0x334155);
+        const sub = `OUT=${q} (${vOut.toFixed(1)}V)`;
+        if (sub !== lastDisp) {
+          lastDisp = sub;
+          drawTextCanvas(
+            ctx,
+            canvas,
+            texture,
+            '#020617',
+            q ? '#4ade80' : '#fbbf24',
+            'NE555',
+            sub
+          );
+        }
+      };
+      break;
+    }
+
     default: {
       // OPAMP & Logic Gate DIP IC Packages with Pin-1 notch & side gull-wing pins
       const chip = new THREE.Mesh(

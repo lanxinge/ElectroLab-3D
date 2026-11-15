@@ -156,6 +156,7 @@ export interface SimulationRuntimeState {
   capVoltages: Record<string, number>;
   indCurrents: Record<string, number>;
   flipFlopStates: Record<string, number>; // 0 | 1
+  timer555States: Record<string, number>; // 0 | 1 (NE555 RS latch Q output)
   counterValues: Record<string, number>; // 0..15 for COUNTER_4BIT
   blownFuses: Record<string, boolean>;
   prevClockHigh: Record<string, boolean>;
@@ -169,6 +170,7 @@ export function createInitialRuntimeState(): SimulationRuntimeState {
     capVoltages: {},
     indCurrents: {},
     flipFlopStates: {},
+    timer555States: {},
     counterValues: {},
     blownFuses: {},
     prevClockHigh: {},
@@ -561,16 +563,63 @@ export function solveCircuitStep(
     }
   }
 
-  // Helper to read logic state on a pin (either from directly driven net in digital propagation or previous MNA node voltage)
+  // Helper to read logic state on a pin (either from directly driven net in digital propagation or analog node voltage)
   const netLogicCache = new Map<number, number>();
-  const seedNetLogicFromVoltages = () => {
+  const digitalDrivenNets = new Set<number>();
+  let hasDigitalOrTimer555 = logicDriveOut.size > 0;
+  for (const c of components) {
+    if (c.type === 'TIMER_555') {
+      hasDigitalOrTimer555 = true;
+      continue;
+    }
+    if (DIGITAL_TYPES.has(c.type)) {
+      hasDigitalOrTimer555 = true;
+    }
+    for (const p of getComponentPins(c)) {
+      if (p.role === 'logic_out') {
+        const n = getNode(c.id, p.id);
+        if (n !== 0) digitalDrivenNets.add(n);
+      }
+    }
+  }
+
+  const evalTimer555Q = (
+    c: CircuitComponent,
+    readV: (cid: string, pid: string) => number,
+    prevQ: 0 | 1
+  ): 0 | 1 => {
+    const vVcc = readV(c.id, 'vcc');
+    const vGnd = readV(c.id, 'gnd');
+    const vSup = vVcc - vGnd;
+    if (vSup < 1.5) return 0;
+    const vHi = vGnd + (2 / 3) * vSup;
+    const vLo = vGnd + (1 / 3) * vSup;
+    const trigConn = connectedPins.has(pinKey(c.id, 'trig'));
+    const thresConn = connectedPins.has(pinKey(c.id, 'thres'));
+    const vTrig = readV(c.id, 'trig');
+    const vThres = readV(c.id, 'thres');
+    if (trigConn && vTrig < vLo - 1e-4) return 1;
+    if (thresConn && vThres > vHi + 1e-4) return 0;
+    return prevQ;
+  };
+
+  const seedNetLogicFromVoltages = (analogVoltages: Record<string, number>) => {
     netLogicCache.clear();
     for (const c of components) {
+      if (c.type === 'DC_SOURCE' || c.type === 'INF_SOURCE') {
+        const v = Number(c.props.voltage ?? 5);
+        if (v >= 2.5) {
+          const nPos = getNode(c.id, 'pos');
+          if (nPos !== 0 && !digitalDrivenNets.has(nPos)) {
+            netLogicCache.set(nPos, 1);
+          }
+        }
+      }
       for (const p of getComponentPins(c)) {
         const n = getNode(c.id, p.id);
-        if (n === 0) continue;
-        const vPrev = simState.lastNodeVoltages[pinKey(c.id, p.id)] ?? 0;
-        if (vPrev >= 2.5) netLogicCache.set(n, 1);
+        if (n === 0 || digitalDrivenNets.has(n)) continue;
+        const vAnalog = analogVoltages[pinKey(c.id, p.id)] ?? 0;
+        if (vAnalog >= 2.5) netLogicCache.set(n, 1);
       }
     }
     for (const [pk, volt] of logicDriveOut.entries()) {
@@ -579,8 +628,6 @@ export function solveCircuitStep(
       if (n !== 0 && volt >= 2.5) netLogicCache.set(n, 1);
     }
   };
-
-  seedNetLogicFromVoltages();
 
   const readLogicPin = (cid: string, pid: string): 0 | 1 => {
     const pk = pinKey(cid, pid);
@@ -590,105 +637,102 @@ export function solveCircuitStep(
     return netLogicCache.get(n) === 1 ? 1 : 0;
   };
 
-  // Combinational propagation (up to 24 passes for multi-stage / nested IC logic)
-  for (let pass = 0; pass < 24; pass++) {
-    let changed = false;
+  const runCombinationalPropagation = (analogVoltages: Record<string, number>): boolean => {
+    let anyChange = false;
+    seedNetLogicFromVoltages(analogVoltages);
+    // Combinational propagation (up to 24 passes for multi-stage / nested IC logic)
+    for (let pass = 0; pass < 24; pass++) {
+      let changed = false;
 
-    const updateOutputPin = (cid: string, pid: string, bit: 0 | 1) => {
-      const pk = pinKey(cid, pid);
-      const targetV = bit ? 5 : 0;
-      if (logicDriveOut.get(pk) !== targetV) {
-        logicDriveOut.set(pk, targetV);
-        changed = true;
-      }
-    };
+      const updateOutputPin = (cid: string, pid: string, bit: 0 | 1) => {
+        const pk = pinKey(cid, pid);
+        const targetV = bit ? 5 : 0;
+        if (logicDriveOut.get(pk) !== targetV) {
+          logicDriveOut.set(pk, targetV);
+          changed = true;
+          anyChange = true;
+        }
+      };
 
-    // Recompute netLogicCache from all active logic outputs + analog high nodes
-    netLogicCache.clear();
-    for (const c of components) {
-      if (c.type === 'DC_SOURCE' || c.type === 'INF_SOURCE') {
-        const v = Number(c.props.voltage ?? 5);
-        if (v >= 2.5) {
-          const nPos = getNode(c.id, 'pos');
-          if (nPos !== 0) netLogicCache.set(nPos, 1);
+      // Recompute netLogicCache from active logic outputs + preserved analog high nodes
+      seedNetLogicFromVoltages(analogVoltages);
+
+      for (const c of components) {
+        if (c.type === 'AND') {
+          const a = readLogicPin(c.id, 'a');
+          const b = readLogicPin(c.id, 'b');
+          updateOutputPin(c.id, 'y', a && b ? 1 : 0);
+        } else if (c.type === 'OR') {
+          const a = readLogicPin(c.id, 'a');
+          const b = readLogicPin(c.id, 'b');
+          updateOutputPin(c.id, 'y', a || b ? 1 : 0);
+        } else if (c.type === 'NOT') {
+          const a = readLogicPin(c.id, 'a');
+          updateOutputPin(c.id, 'y', a ? 0 : 1);
+        } else if (c.type === 'NAND') {
+          const a = readLogicPin(c.id, 'a');
+          const b = readLogicPin(c.id, 'b');
+          updateOutputPin(c.id, 'y', a && b ? 0 : 1);
+        } else if (c.type === 'NOR') {
+          const a = readLogicPin(c.id, 'a');
+          const b = readLogicPin(c.id, 'b');
+          updateOutputPin(c.id, 'y', a || b ? 0 : 1);
+        } else if (c.type === 'XOR') {
+          const a = readLogicPin(c.id, 'a');
+          const b = readLogicPin(c.id, 'b');
+          updateOutputPin(c.id, 'y', a ^ b ? 1 : 0);
+        } else if (c.type === 'XNOR') {
+          const a = readLogicPin(c.id, 'a');
+          const b = readLogicPin(c.id, 'b');
+          updateOutputPin(c.id, 'y', a ^ b ? 0 : 1);
+        } else if (c.type === 'MUX_2_1') {
+          const d0 = readLogicPin(c.id, 'd0');
+          const d1 = readLogicPin(c.id, 'd1');
+          const sel = readLogicPin(c.id, 'sel');
+          updateOutputPin(c.id, 'y', sel ? d1 : d0);
+        } else if (c.type === 'HALF_ADDER') {
+          const a = readLogicPin(c.id, 'a');
+          const b = readLogicPin(c.id, 'b');
+          updateOutputPin(c.id, 's', (a ^ b) as 0 | 1);
+          updateOutputPin(c.id, 'c', (a & b) as 0 | 1);
+        } else if (c.type === 'FULL_ADDER') {
+          const a = readLogicPin(c.id, 'a');
+          const b = readLogicPin(c.id, 'b');
+          const cin = readLogicPin(c.id, 'cin');
+          const sum = a + b + cin;
+          updateOutputPin(c.id, 's', (sum & 1) as 0 | 1);
+          updateOutputPin(c.id, 'cout', sum >= 2 ? 1 : 0);
+        } else if (c.type === 'D_FF' || c.type === 'JK_FF') {
+          const q = simState.flipFlopStates[c.id] ? 1 : 0;
+          updateOutputPin(c.id, 'q', q);
+          updateOutputPin(c.id, 'qn', q ? 0 : 1);
+        } else if (c.type === 'COUNTER_4BIT') {
+          const rst = readLogicPin(c.id, 'rst');
+          if (rst && (simState.counterValues[c.id] ?? 0) !== 0) {
+            simState.counterValues[c.id] = 0;
+          }
+          const val = rst ? 0 : (simState.counterValues[c.id] ?? 0) & 0x0f;
+          updateOutputPin(c.id, 'q3', (val >> 3) & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'q2', (val >> 2) & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'q1', (val >> 1) & 1 ? 1 : 0);
+          updateOutputPin(c.id, 'q0', val & 1 ? 1 : 0);
+        } else if (c.type === 'CUSTOM_TRUTH_8' || c.type === 'CUSTOM_TRUTH_16') {
+          const outputs = evaluateTruthChipOutputs(c, (pid) => readLogicPin(c.id, pid));
+          for (const [outPinId, bit] of Object.entries(outputs)) {
+            updateOutputPin(c.id, outPinId, bit);
+          }
         }
       }
-    }
-    for (const [pk, volt] of logicDriveOut.entries()) {
-      const [cid, pid] = pk.split(':');
-      const n = getNode(cid, pid);
-      if (n !== 0 && volt >= 2.5) netLogicCache.set(n, 1);
-    }
 
-    for (const c of components) {
-      if (c.type === 'AND') {
-        const a = readLogicPin(c.id, 'a');
-        const b = readLogicPin(c.id, 'b');
-        updateOutputPin(c.id, 'y', a && b ? 1 : 0);
-      } else if (c.type === 'OR') {
-        const a = readLogicPin(c.id, 'a');
-        const b = readLogicPin(c.id, 'b');
-        updateOutputPin(c.id, 'y', a || b ? 1 : 0);
-      } else if (c.type === 'NOT') {
-        const a = readLogicPin(c.id, 'a');
-        updateOutputPin(c.id, 'y', a ? 0 : 1);
-      } else if (c.type === 'NAND') {
-        const a = readLogicPin(c.id, 'a');
-        const b = readLogicPin(c.id, 'b');
-        updateOutputPin(c.id, 'y', a && b ? 0 : 1);
-      } else if (c.type === 'NOR') {
-        const a = readLogicPin(c.id, 'a');
-        const b = readLogicPin(c.id, 'b');
-        updateOutputPin(c.id, 'y', a || b ? 0 : 1);
-      } else if (c.type === 'XOR') {
-        const a = readLogicPin(c.id, 'a');
-        const b = readLogicPin(c.id, 'b');
-        updateOutputPin(c.id, 'y', a ^ b ? 1 : 0);
-      } else if (c.type === 'XNOR') {
-        const a = readLogicPin(c.id, 'a');
-        const b = readLogicPin(c.id, 'b');
-        updateOutputPin(c.id, 'y', a ^ b ? 0 : 1);
-      } else if (c.type === 'MUX_2_1') {
-        const d0 = readLogicPin(c.id, 'd0');
-        const d1 = readLogicPin(c.id, 'd1');
-        const sel = readLogicPin(c.id, 'sel');
-        updateOutputPin(c.id, 'y', sel ? d1 : d0);
-      } else if (c.type === 'HALF_ADDER') {
-        const a = readLogicPin(c.id, 'a');
-        const b = readLogicPin(c.id, 'b');
-        updateOutputPin(c.id, 's', (a ^ b) as 0 | 1);
-        updateOutputPin(c.id, 'c', (a & b) as 0 | 1);
-      } else if (c.type === 'FULL_ADDER') {
-        const a = readLogicPin(c.id, 'a');
-        const b = readLogicPin(c.id, 'b');
-        const cin = readLogicPin(c.id, 'cin');
-        const sum = a + b + cin;
-        updateOutputPin(c.id, 's', (sum & 1) as 0 | 1);
-        updateOutputPin(c.id, 'cout', sum >= 2 ? 1 : 0);
-      } else if (c.type === 'D_FF' || c.type === 'JK_FF') {
-        const q = simState.flipFlopStates[c.id] ? 1 : 0;
-        updateOutputPin(c.id, 'q', q);
-        updateOutputPin(c.id, 'qn', q ? 0 : 1);
-      } else if (c.type === 'COUNTER_4BIT') {
-        const rst = readLogicPin(c.id, 'rst');
-        const val = rst ? 0 : (simState.counterValues[c.id] ?? 0) & 0x0f;
-        updateOutputPin(c.id, 'q3', (val >> 3) & 1 ? 1 : 0);
-        updateOutputPin(c.id, 'q2', (val >> 2) & 1 ? 1 : 0);
-        updateOutputPin(c.id, 'q1', (val >> 1) & 1 ? 1 : 0);
-        updateOutputPin(c.id, 'q0', val & 1 ? 1 : 0);
-      } else if (c.type === 'CUSTOM_TRUTH_8' || c.type === 'CUSTOM_TRUTH_16') {
-        const outputs = evaluateTruthChipOutputs(c, (pid) => readLogicPin(c.id, pid));
-        for (const [outPinId, bit] of Object.entries(outputs)) {
-          updateOutputPin(c.id, outPinId, bit);
-        }
-      }
+      if (!changed) break;
     }
+    return anyChange;
+  };
 
-    if (!changed) break;
-  }
-
-  // Handle sequential rising edge detection (D_FF, JK_FF, COUNTER_4BIT) when time advances (dt > 0)
-  if (dt > 0) {
+  const stepSequentialElements = (analogVoltages: Record<string, number>): boolean => {
+    if (dt <= 0) return false;
+    seedNetLogicFromVoltages(analogVoltages);
+    let seqChanged = false;
     for (const c of components) {
       if (c.type === 'D_FF') {
         const clkHigh = readLogicPin(c.id, 'clk') === 1;
@@ -698,6 +742,7 @@ export function solveCircuitStep(
           simState.flipFlopStates[c.id] = dVal;
           logicDriveOut.set(pinKey(c.id, 'q'), dVal ? 5 : 0);
           logicDriveOut.set(pinKey(c.id, 'qn'), dVal ? 0 : 5);
+          seqChanged = true;
         }
         simState.prevClockHigh[c.id] = clkHigh;
       } else if (c.type === 'JK_FF') {
@@ -714,18 +759,21 @@ export function solveCircuitStep(
           simState.flipFlopStates[c.id] = nextQ;
           logicDriveOut.set(pinKey(c.id, 'q'), nextQ ? 5 : 0);
           logicDriveOut.set(pinKey(c.id, 'qn'), nextQ ? 0 : 5);
+          seqChanged = true;
         }
         simState.prevClockHigh[c.id] = clkHigh;
       } else if (c.type === 'COUNTER_4BIT') {
         const rst = readLogicPin(c.id, 'rst') === 1;
         const clkHigh = readLogicPin(c.id, 'clk') === 1;
         const wasHigh = Boolean(simState.prevClockHigh[c.id]);
-        let val = (simState.counterValues[c.id] ?? 0) & 0x0f;
+        const prevVal = (simState.counterValues[c.id] ?? 0) & 0x0f;
+        let val = prevVal;
         if (rst) {
           val = 0;
         } else if (!wasHigh && clkHigh) {
           val = (val + 1) & 0x0f;
         }
+        if (val !== prevVal) seqChanged = true;
         simState.counterValues[c.id] = val;
         simState.prevClockHigh[c.id] = clkHigh;
         logicDriveOut.set(pinKey(c.id, 'q3'), (val >> 3) & 1 ? 5 : 0);
@@ -734,6 +782,13 @@ export function solveCircuitStep(
         logicDriveOut.set(pinKey(c.id, 'q0'), val & 1 ? 5 : 0);
       }
     }
+    return seqChanged;
+  };
+
+  // Pre-MNA logic evaluation + sequential clock update (followed by combinational feedback pass for async RST)
+  runCombinationalPropagation(simState.lastNodeVoltages);
+  if (stepSequentialElements(simState.lastNodeVoltages)) {
+    runCombinationalPropagation(simState.lastNodeVoltages);
   }
 
   // 4. Identify Voltage Sources, Transformers (MNA branch currents) & Nonlinear Components
@@ -824,7 +879,7 @@ export function solveCircuitStep(
   }
 
   const dim = numNodes + voltageBranches.length + transformerBranches.length;
-  const maxNrIters = hasNonlinear ? 45 : 1;
+  const maxNrIters = hasNonlinear ? 80 : 1;
 
   // Initial voltage guess for NR
   const prevGuess = new Array<number>(dim).fill(0);
@@ -845,6 +900,7 @@ export function solveCircuitStep(
   const nmosPrevVgs = new Map<string, number>();
   const nmosPrevVds = new Map<string, number>();
   const opampPrevVd = new Map<string, number>();
+  const opampZeroCrossCount = new Map<string, number>();
 
   for (const c of components) {
     if (c.type === 'DIODE' || c.type === 'LED') {
@@ -887,10 +943,27 @@ export function solveCircuitStep(
     }
   }
 
+  const uninitialized555Ids = new Set<string>();
+  for (const c of components) {
+    if (c.type === 'TIMER_555' && simState.timer555States[c.id] === undefined) {
+      simState.timer555States[c.id] = 0;
+      uninitialized555Ids.add(c.id);
+    }
+  }
+
   let solution = new Array<number>(dim).fill(0);
   let converged = true;
+  const maxMxPasses = hasDigitalOrTimer555 ? 4 : 1;
 
-  for (let nrIter = 0; nrIter < maxNrIters; nrIter++) {
+  for (let mxPass = 0; mxPass < maxMxPasses; mxPass++) {
+    const preMnaDriveSnapshot = hasDigitalOrTimer555 ? new Map(logicDriveOut) : null;
+    if (mxPass > 0) {
+      for (let i = 0; i < dim; i++) {
+        prevGuess[i] = solution[i] ?? 0;
+      }
+    }
+
+    for (let nrIter = 0; nrIter < maxNrIters; nrIter++) {
     const A: number[][] = Array.from({ length: dim }, () => new Array<number>(dim).fill(0));
     const b: number[] = new Array<number>(dim).fill(0);
 
@@ -1349,6 +1422,33 @@ export function solveCircuitStep(
           stampG(getNode(c.id, 'io'), 0, c.props.__packagedPort ? 1e-9 : 1e-6);
           break;
         }
+        case 'TIMER_555': {
+          const nVcc = getNode(c.id, 'vcc');
+          const nGnd = getNode(c.id, 'gnd');
+          const nTrig = getNode(c.id, 'trig');
+          const nThres = getNode(c.id, 'thres');
+          const nDis = getNode(c.id, 'dis');
+          const nOut = getNode(c.id, 'out');
+          const q = (simState.timer555States[c.id] ?? 0) ? 1 : 0;
+
+          // Internal 3x5kOhm reference ladder + comparator input loads
+          stampG(nVcc, nGnd, 1 / 15000);
+          stampG(nTrig, nGnd, 1e-6);
+          stampG(nThres, nGnd, 1e-6);
+
+          // Push-pull output stage referencing VCC & GND rails
+          if (q === 1) {
+            stampG(nOut, nVcc, 1 / 20);
+            stampG(nOut, nGnd, 1e-7);
+          } else {
+            stampG(nOut, nGnd, 1 / 20);
+            stampG(nOut, nVcc, 1e-7);
+          }
+
+          // Open-collector discharge NPN to GND (ON when Q=0)
+          stampG(nDis, nGnd, q === 0 ? 1 / 12 : 1e-8);
+          break;
+        }
       }
     }
 
@@ -1429,16 +1529,80 @@ export function solveCircuitStep(
         nmosPrevVgs.set(c.id, vgsLim);
         nmosPrevVds.set(c.id, vdsLim);
       } else if (c.type === 'OPAMP') {
+        const railPos = Number(c.props.railPos ?? 12);
+        const railNeg = Number(c.props.railNeg ?? -12);
+        const gain = Math.max(100, Number(c.props.gain ?? 50000));
+        const vHalf = Math.max(0.1, (railPos - railNeg) / 2);
+        const vLin = vHalf / gain;
         const vdRaw = nodeV(getNode(c.id, 'inp')) - nodeV(getNode(c.id, 'inm'));
         const vdOld = opampPrevVd.get(c.id) ?? 0;
         const diff = vdRaw - vdOld;
-        const damped = Math.abs(diff) > 0.2 ? vdOld + 0.5 * diff : vdRaw;
+        let damped: number;
+        if (vdOld * vdRaw < 0 && (Math.abs(vdOld) > 2 * vLin || Math.abs(vdRaw) > 2 * vLin)) {
+          const zc = (opampZeroCrossCount.get(c.id) ?? 0) + 1;
+          opampZeroCrossCount.set(c.id, zc);
+          damped = zc <= 2 ? 0 : Math.abs(diff) > 0.2 ? vdOld + 0.5 * diff : vdRaw;
+        } else {
+          damped = Math.abs(diff) > 0.2 ? vdOld + 0.5 * diff : vdRaw;
+        }
         maxDelta = Math.max(maxDelta, Math.abs(diff));
         opampPrevVd.set(c.id, damped);
       }
     }
 
-    if (maxDelta < 1e-5) {
+      if (maxDelta < 1e-5) {
+        break;
+      }
+    }
+
+    if (!hasDigitalOrTimer555 || mxPass + 1 >= maxMxPasses) {
+      break;
+    }
+
+    const solvedReadV = (cid: string, pid: string): number => {
+      const n = getNode(cid, pid);
+      return n > 0 && n <= numNodes ? solution[n - 1] : 0;
+    };
+    const solvedVoltagesByPin: Record<string, number> = {};
+    for (const c of components) {
+      for (const p of getComponentPins(c)) {
+        solvedVoltagesByPin[pinKey(c.id, p.id)] = solvedReadV(c.id, p.id);
+      }
+    }
+
+    let needMxResolve = false;
+    for (const c of components) {
+      if (c.type !== 'TIMER_555') continue;
+      if (dt === 0 || uninitialized555Ids.has(c.id)) {
+        const prevQ = (simState.timer555States[c.id] ?? 0) ? 1 : 0;
+        const nextQ = evalTimer555Q(c, solvedReadV, prevQ);
+        uninitialized555Ids.delete(c.id);
+        if (nextQ !== prevQ) {
+          simState.timer555States[c.id] = nextQ;
+          needMxResolve = true;
+        }
+      }
+    }
+
+    runCombinationalPropagation(solvedVoltagesByPin);
+    if (stepSequentialElements(solvedVoltagesByPin)) {
+      runCombinationalPropagation(solvedVoltagesByPin);
+    }
+
+    if (preMnaDriveSnapshot) {
+      if (logicDriveOut.size !== preMnaDriveSnapshot.size) {
+        needMxResolve = true;
+      } else {
+        for (const [k, v] of logicDriveOut.entries()) {
+          if (preMnaDriveSnapshot.get(k) !== v) {
+            needMxResolve = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!needMxResolve) {
       break;
     }
   }
@@ -1900,6 +2064,48 @@ export function solveCircuitStep(
         extraInfo = `HEX: ${hexVal.toString(16).toUpperCase()} (${hexVal})`;
         break;
       }
+      case 'TIMER_555': {
+        const vVcc = pinVoltages.vcc ?? 0;
+        const vGnd = pinVoltages.gnd ?? 0;
+        const vTrig = pinVoltages.trig ?? 0;
+        const vThres = pinVoltages.thres ?? 0;
+        const vDis = pinVoltages.dis ?? 0;
+        const vOut = pinVoltages.out ?? 0;
+        const vSup = vVcc - vGnd;
+        const q = (simState.timer555States[c.id] ?? 0) ? 1 : 0;
+
+        const gOutVcc = q === 1 ? 1 / 20 : 1e-7;
+        const gOutGnd = q === 1 ? 1e-7 : 1 / 20;
+        const gDisGnd = q === 0 ? 1 / 12 : 1e-8;
+
+        const iLad = vSup / 15000;
+        const iOutVcc = (vOut - vVcc) * gOutVcc;
+        const iOutGnd = (vOut - vGnd) * gOutGnd;
+        const iDisGnd = (vDis - vGnd) * gDisGnd;
+        const iTrig = (vTrig - vGnd) * 1e-6;
+        const iThres = (vThres - vGnd) * 1e-6;
+
+        addPinCurrent(c.id, 'vcc', iLad - iOutVcc);
+        addPinCurrent(c.id, 'trig', iTrig);
+        addPinCurrent(c.id, 'thres', iThres);
+        addPinCurrent(c.id, 'dis', iDisGnd);
+        addPinCurrent(c.id, 'out', iOutVcc + iOutGnd);
+        addPinCurrent(c.id, 'gnd', -iLad - iTrig - iThres - iDisGnd - iOutGnd);
+
+        voltageDrop = vOut - vGnd;
+        current = -(iOutVcc + iOutGnd);
+        power =
+          Math.abs(vSup * iLad) +
+          Math.abs((vOut - vVcc) * iOutVcc) +
+          Math.abs((vOut - vGnd) * iOutGnd) +
+          Math.abs((vDis - vGnd) * iDisGnd);
+        logicState = vSup >= 1.5 && voltageDrop >= 0.5 * vSup ? 1 : 0;
+        extraInfo =
+          vSup < 1.5
+            ? '未上电 (VCC-GND < 1.5V)'
+            : `Q=${logicState} · 阈值[${(vGnd + vSup / 3).toFixed(2)}V, ${(vGnd + (2 * vSup) / 3).toFixed(2)}V]`;
+        break;
+      }
       default: {
         // Logic gates, FFs, Counters & Truth Table LUT Chips
         let lastOutState = 0;
@@ -1961,6 +2167,15 @@ export function solveCircuitStep(
       logicState,
       extraInfo,
     };
+  }
+
+  if (dt > 0) {
+    for (const c of components) {
+      if (c.type === 'TIMER_555') {
+        const prevQ = (simState.timer555States[c.id] ?? 0) ? 1 : 0;
+        simState.timer555States[c.id] = evalTimer555Q(c, getV, prevQ);
+      }
+    }
   }
 
   // Synthesize top-level CUSTOM_IC telemetry from flattened child telemetry & port anchors

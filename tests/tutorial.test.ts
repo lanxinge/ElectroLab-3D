@@ -32,11 +32,13 @@ function runForSeconds(
   return lastRes;
 }
 
-describe('ElectroLab 3D v0.4 Zero-Foundation Curriculum (Vol. 1)', () => {
-  it('defines 7 chapters, 12 lessons, and 36 progressive stages with valid pins & Ponder deep-links', () => {
-    expect(TUTORIAL_CHAPTERS.length).toBe(7);
-    expect(TUTORIAL_LESSONS.length).toBe(12);
-    expect(TOTAL_TUTORIAL_STAGES).toBe(36);
+describe('ElectroLab 3D Zero-Foundation Curriculum (Vol. 1 + Vol. 2)', () => {
+  it('defines 15 chapters (7 Vol.1 + 8 Vol.2), 26 lessons, and 78 progressive stages with valid pins & Ponder deep-links', () => {
+    expect(TUTORIAL_CHAPTERS.length).toBe(15);
+    expect(TUTORIAL_CHAPTERS.filter((c) => c.volume === 'vol1').length).toBe(7);
+    expect(TUTORIAL_CHAPTERS.filter((c) => c.volume === 'vol2').length).toBe(8);
+    expect(TUTORIAL_LESSONS.length).toBe(26);
+    expect(TOTAL_TUTORIAL_STAGES).toBe(78);
 
     for (const lesson of TUTORIAL_LESSONS) {
       expect(lesson.stages.length).toBeGreaterThanOrEqual(2);
@@ -148,7 +150,7 @@ describe('ElectroLab 3D v0.4 Zero-Foundation Curriculum (Vol. 1)', () => {
     expect(Math.abs(iMotAfter - iMotBefore) / iMotBefore).toBeLessThan(0.03);
   });
 
-  it('passes all 36 stage checkpoints via TutorialStore runCheckpointAutoDemo()', () => {
+  it('passes all 78 stage checkpoints via TutorialStore runCheckpointAutoDemo()', () => {
     useTutorialStore.getState().exitTutorial(false);
     const tut = useTutorialStore.getState();
     tut.enterTutorial(TUTORIAL_LESSONS[0].id, 0);
@@ -347,6 +349,78 @@ describe('ElectroLab 3D v0.4 Zero-Foundation Curriculum (Vol. 1)', () => {
       const evalExpr = stage.liveFormulas[0].evaluate(afterStep).expression;
       expect(evalExpr).toContain('Δt=0.20s');
       expect(evalExpr).toContain('初值 0.00 V');
+    } finally {
+      useTutorialStore.getState().exitTutorial(false);
+    }
+  });
+
+  it('verifies Vol. 2 analog physics (BJT CE bypass C_E & op-amp series regulator)', () => {
+    try {
+      // Lesson 15 Stage 3: Closing emitter bypass C_E boosts AC voltage gain significantly
+      useTutorialStore.getState().enterTutorial('ch8-bjt-amplifiers', 2); // l15-s3
+      const l15s3 = getLessonById('ch8-bjt-amplifiers').stages[2];
+      useCircuitStore.getState().updateComponentProp('k_ce', 'closed', false);
+      for (let i = 0; i < 15; i++) useCircuitStore.getState().stepOnce(0.02);
+      const unbypassedPass = l15s3.checkpoint!.check(buildTutorialEvalContext(l15s3)).passed;
+      expect(unbypassedPass).toBe(false);
+
+      const demoOk15 = useTutorialStore.getState().runCheckpointAutoDemo();
+      expect(demoOk15).toBe(true);
+
+      // Lesson 19 Stage 2 & Stage 3: Op-Amp series regulator stabilizes Vo around 9.0V and 5.0V
+      useTutorialStore.getState().enterTutorial('ch10-linear-series-regulator', 1); // l19-s2
+      expect(useTutorialStore.getState().runCheckpointAutoDemo()).toBe(true);
+      const reg9V = useCircuitStore.getState().telemetryById['vm_out']?.voltageDrop ?? 0;
+      expect(reg9V).toBeGreaterThanOrEqual(8.7);
+      expect(reg9V).toBeLessThanOrEqual(9.5);
+
+      useTutorialStore.getState().enterTutorial('ch10-linear-series-regulator', 2); // l19-s3
+      const demoOk19 = useTutorialStore.getState().runCheckpointAutoDemo();
+      expect(demoOk19).toBe(true);
+      const reg5V = useCircuitStore.getState().telemetryById['vm_out']?.voltageDrop ?? 0;
+      expect(reg5V).toBeGreaterThanOrEqual(4.8);
+      expect(reg5V).toBeLessThanOrEqual(5.3);
+    } finally {
+      useTutorialStore.getState().exitTutorial(false);
+    }
+  });
+
+  it('verifies Vol. 2 NE555 monostable pulse timeout, 4-bit DACs, and 2-bit Flash ADC quantization', () => {
+    try {
+      // Lesson 24 Stage 2: 555 Monostable holds OUT ~5V after trigger, then resets < 0.5V after tw=1.1s
+      useTutorialStore.getState().enterTutorial('ch13-timer-555-pulse-circuits', 1); // l24-s2
+      useCircuitStore.getState().updateComponentProp('sw_trig', 'position', 1);
+      for (let i = 0; i < 30; i++) useCircuitStore.getState().stepOnce(0.02); // t ~ +0.60s < 1.10s
+      const voutMid = useCircuitStore.getState().telemetryById['vm_out']?.voltageDrop ?? 0;
+      expect(voutMid).toBeGreaterThan(4.3);
+      for (let i = 0; i < 45; i++) useCircuitStore.getState().stepOnce(0.02); // t ~ +1.50s > 1.10s
+      const voutDone = useCircuitStore.getState().telemetryById['vm_out']?.voltageDrop ?? 9;
+      expect(voutDone).toBeLessThan(0.5);
+
+      // Lesson 25 Stage 1 & 2: Weighted DAC (1010 -> -5.0V) & R-2R Ladder (1100 -> +3.75V)
+      useTutorialStore.getState().enterTutorial('ch13-dac-conversion', 0); // l25-s1
+      expect(useTutorialStore.getState().runCheckpointAutoDemo()).toBe(true);
+      const dacWeightedV = useCircuitStore.getState().telemetryById['vm_out']?.voltageDrop ?? 0;
+      expect(dacWeightedV).toBeCloseTo(-5.0, 1);
+
+      useTutorialStore.getState().enterTutorial('ch13-dac-conversion', 1); // l25-s2
+      expect(useTutorialStore.getState().runCheckpointAutoDemo()).toBe(true);
+      const dacR2RV = useCircuitStore.getState().telemetryById['vm_out']?.voltageDrop ?? 0;
+      expect(dacR2RV).toBeCloseTo(3.75, 1);
+
+      // Lesson 26 Stage 2: 2-bit Flash ADC quantizes 0.5V -> 0, 1.5V -> 1, 2.5V -> 2, 3.6V -> 3
+      useTutorialStore.getState().enterTutorial('ch14-adc-and-mixed-signal-capstone', 1); // l26-s2
+      const samples: Array<[number, number]> = [
+        [0.5, 0],
+        [1.5, 1],
+        [2.5, 2],
+        [3.6, 3],
+      ];
+      for (const [vin, expectedCode] of samples) {
+        useCircuitStore.getState().updateComponentProp('vin', 'voltage', vin);
+        const hex = useCircuitStore.getState().telemetryById['hex1']?.logicState;
+        expect(hex, `Flash ADC Vin=${vin}V`).toBe(expectedCode);
+      }
     } finally {
       useTutorialStore.getState().exitTutorial(false);
     }

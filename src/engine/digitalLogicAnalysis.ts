@@ -496,7 +496,12 @@ export function analyzeDigitalCircuit(
   }
 
   const isSequentialOrFeedback = circuit.components.some(
-    (c) => c.type === 'D_FF' || c.type === 'JK_FF' || c.type === 'COUNTER_4BIT' || c.type === 'CLOCK'
+    (c) =>
+      c.type === 'D_FF' ||
+      c.type === 'JK_FF' ||
+      c.type === 'COUNTER_4BIT' ||
+      c.type === 'CLOCK' ||
+      c.type === 'TIMER_555'
   );
   if (isSequentialOrFeedback && !notice) {
     notice = '电路包含时钟或触发器/计数器（时序逻辑），真值表反映当前锁存状态下的组合响应。';

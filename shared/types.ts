@@ -31,6 +31,7 @@ export type ComponentType =
   | 'BJT_NPN'
   | 'NMOS'
   | 'OPAMP'
+  | 'TIMER_555'
   // Instruments
   | 'VOLTMETER'
   | 'AMMETER'

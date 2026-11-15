@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   BookOpen,
   CheckCircle2,
@@ -28,6 +28,7 @@ export const TutorialCoursePanel: React.FC = () => {
   const currentStageIndex = useTutorialStore((s) => s.currentStageIndex);
   const completedStageIds = useTutorialStore((s) => s.completedStageIds);
   const catalogOpen = useTutorialStore((s) => s.catalogOpen);
+  const [volumeFilter, setVolumeFilter] = useState<'all' | 'vol1' | 'vol2'>('all');
 
   const selectLesson = useTutorialStore((s) => s.selectLesson);
   const selectStage = useTutorialStore((s) => s.selectStage);
@@ -117,7 +118,7 @@ export const TutorialCoursePanel: React.FC = () => {
           <div className="h-11 px-3 border-b border-slate-800 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-sky-300">
               <BookOpen className="w-4 h-4" />
-              本科电工学上册 · 零基础交互目录
+              本科电工学上/下册 · 交互目录
             </div>
             <button
               type="button"
@@ -129,8 +130,38 @@ export const TutorialCoursePanel: React.FC = () => {
             </button>
           </div>
 
+          <div className="px-3 pt-2 pb-1.5 border-b border-slate-800/80 grid grid-cols-3 gap-1 shrink-0 bg-slate-900/60">
+            {[
+              { id: 'all' as const, label: `全部 (${TUTORIAL_CHAPTERS.length}章)` },
+              {
+                id: 'vol1' as const,
+                label: `上册·电工 (${TUTORIAL_CHAPTERS.filter((c) => c.volume === 'vol1').length}章)`,
+              },
+              {
+                id: 'vol2' as const,
+                label: `下册·电子 (${TUTORIAL_CHAPTERS.filter((c) => c.volume === 'vol2').length}章)`,
+              },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                data-testid={`tutorial-vol-filter-${tab.id}`}
+                onClick={() => setVolumeFilter(tab.id)}
+                className={`py-1 px-1.5 rounded text-[10px] font-medium border transition ${
+                  volumeFilter === tab.id
+                    ? 'bg-sky-600/25 border-sky-500/60 text-sky-200'
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
           <div className="flex-1 overflow-y-auto p-3 space-y-4">
-            {TUTORIAL_CHAPTERS.map((chap) => {
+            {TUTORIAL_CHAPTERS.filter(
+              (chap) => volumeFilter === 'all' || chap.volume === volumeFilter
+            ).map((chap) => {
               const chapLessons = TUTORIAL_LESSONS.filter((l) => l.chapterId === chap.id);
               return (
                 <div key={chap.id} className="space-y-1.5">

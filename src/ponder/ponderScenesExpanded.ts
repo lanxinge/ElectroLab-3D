@@ -644,3 +644,83 @@ export const buildCustomIcDiorama: PonderDioramaBuilder = () => {
     },
   };
 };
+
+export const buildTimer555Diorama: PonderDioramaBuilder = () => {
+  const root = buildCreatePedestal();
+  const ladderBody = buildGateChipHousing(0.75, 0.55, 0.9, 0xf59e0b);
+  ladderBody.position.set(-1.1, 0, 0);
+  const rsMat = makeEmissiveMaterial(0x22c55e, 0.9);
+  const rsCore = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.52, 0.68), rsMat);
+  rsCore.position.set(0, 0.46, 0);
+
+  const disMat = makeEmissiveMaterial(0xfb7185, 0.15);
+  const disNode = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.34, 16), disMat);
+  disNode.position.set(0.32, 0.25, -0.68);
+
+  const capTower = buildLevelBar(-0.35, -0.78, 1.35, 0x38bdf8);
+  const loMark = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.025, 8, 20), makeBrassMaterial(0xf59e0b));
+  loMark.rotation.x = Math.PI / 2;
+  loMark.position.set(-0.35, 0.45, -0.78);
+  const hiMark = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.025, 8, 20), makeBrassMaterial(0xfbbf24));
+  hiMark.rotation.x = Math.PI / 2;
+  hiMark.position.set(-0.35, 0.9, -0.78);
+
+  const outTower = buildLampTower(1.35, 0, 0.9, 0x22c55e);
+  const track = buildCopperTrack([
+    [-1.1, 0.45, 0],
+    [0, 0.45, 0],
+    [1.35, 0.45, 0],
+  ]);
+  const outStream = buildParticleStream(
+    [
+      [0.15, 0.56, 0],
+      [0.75, 0.56, 0],
+      [1.28, 0.56, 0],
+    ],
+    8,
+    0x22c55e
+  );
+
+  root.add(ladderBody, rsCore, disNode, capTower.group, loMark, hiMark, outTower.group, track, outStream.group);
+
+  return {
+    root,
+    update: (elapsed, _s, _p, params) => {
+      const vcc = params.vcc ?? 5;
+      const r = (params.rKohm ?? 10) * 1e3;
+      const c = (params.cUf ?? 10) * 1e-6;
+      const tPeriod = Math.max(0.08, 0.693 * 3 * r * c);
+      const tHigh = 0.693 * 2 * r * c;
+      const visualPeriod = Math.min(4.0, Math.max(0.7, tPeriod * 4));
+      const phaseTime = (elapsed % visualPeriod) / visualPeriod;
+      const duty = tHigh / tPeriod;
+      const high = phaseTime < duty;
+      const vcFrac = high
+        ? 1 / 3 + (phaseTime / duty) * (1 / 3)
+        : 2 / 3 - ((phaseTime - duty) / Math.max(0.05, 1 - duty)) * (1 / 3);
+
+      capTower.setRatio(vcFrac, high ? 0x38bdf8 : 0xfb7185);
+      rsMat.color.setHex(high ? 0x22c55e : 0xef4444);
+      rsMat.emissive.setHex(high ? 0x22c55e : 0xef4444);
+      rsMat.emissiveIntensity = high ? 0.9 : 0.45;
+      disMat.emissiveIntensity = high ? 0.08 : 1.15;
+      outTower.setLit(high, high ? 0x22c55e : 0xef4444, high ? (vcc / 5) * 1.1 : 0.15);
+      outStream.update(elapsed, high ? 1.8 : 0.6, high, false, high ? 0x22c55e : 0xef4444);
+    },
+    getLiveReadout: (elapsed, _s, params) => {
+      const vcc = params.vcc ?? 5;
+      const r = (params.rKohm ?? 10) * 1e3;
+      const c = (params.cUf ?? 10) * 1e-6;
+      const tPeriod = Math.max(0.001, 0.693 * 3 * r * c);
+      const tHigh = 0.693 * 2 * r * c;
+      const visualPeriod = Math.min(4.0, Math.max(0.7, tPeriod * 4));
+      const phaseTime = (elapsed % visualPeriod) / visualPeriod;
+      const high = phaseTime < tHigh / tPeriod;
+      return [
+        { label: '窗口门限 [1/3, 2/3]', value: `[${(vcc / 3).toFixed(2)}V, ${((2 * vcc) / 3).toFixed(2)}V]`, accent: 'amber' },
+        { label: '多谐频率 / 周期', value: `${(1 / tPeriod).toFixed(2)} Hz / ${(tPeriod * 1000).toFixed(1)}ms`, accent: 'sky' },
+        { label: '当前相位输出', value: high ? `HIGH (${vcc.toFixed(1)}V · 充电)` : 'LOW (0V · DIS放电)', accent: high ? 'emerald' : 'rose' },
+      ];
+    },
+  };
+};

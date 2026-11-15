@@ -530,4 +530,151 @@ describe('V3 Expanded Modules, Custom Truth Chips, Hierarchical ICs & Project IO
     expect(pins.filter((p) => p.label === 'A' || p.label === 'B' || p.label === 'Cin').every((p) => p.offset2d.x < 0)).toBe(true);
     expect(pins.filter((p) => p.label === 'S' || p.label === 'Cout').every((p) => p.offset2d.x > 0)).toBe(true);
   });
+
+  it('propagates analog node voltages (OPAMP comparator) into digital logic gates on the same step', () => {
+    const gnd = makeComp('g', 'GROUND');
+    const vRef = makeComp('vref', 'DC_SOURCE', { voltage: 2.5 });
+    const vIn = makeComp('vin', 'DC_SOURCE', { voltage: 1.0 });
+    const op = makeComp('u1', 'OPAMP', { railPos: 5, railNeg: 0, gain: 100000 });
+    const en = makeComp('in_en', 'LOGIC_IN', { state: 1 });
+    const gate = makeComp('and1', 'AND');
+    const out = makeComp('out1', 'LOGIC_OUT');
+    const circuit: CircuitData = {
+      components: [gnd, vRef, vIn, op, en, gate, out],
+      wires: [
+        makeWire('w1', 'vref', 'neg', 'g', 'gnd'),
+        makeWire('w2', 'vin', 'neg', 'g', 'gnd'),
+        makeWire('w3', 'vin', 'pos', 'u1', 'inp'),
+        makeWire('w4', 'vref', 'pos', 'u1', 'inm'),
+        makeWire('w5', 'u1', 'out', 'and1', 'a'),
+        makeWire('w6', 'in_en', 'out', 'and1', 'b'),
+        makeWire('w7', 'and1', 'y', 'out1', 'in'),
+      ],
+    };
+
+    const sLow = createInitialRuntimeState();
+    const resLow = solveCircuitStep(circuit, sLow, 0);
+    expect(resLow.telemetryById.u1.pinVoltages.out).toBeLessThan(0.5);
+    expect(resLow.telemetryById.out1.logicState).toBe(0);
+
+    // Raise Vin above Vref=2.5V and solve once at dt=0 -> AND gate and LOGIC_OUT must respond immediately
+    vIn.props.voltage = 3.8;
+    const resHigh = solveCircuitStep(circuit, createInitialRuntimeState(), 0);
+    expect(resHigh.telemetryById.u1.pinVoltages.out).toBeGreaterThan(4.5);
+    expect(resHigh.telemetryById.out1.logicState).toBe(1);
+  });
+
+  it('clears COUNTER_4BIT asynchronously for Mod-10 BCD feedback (Q3 & Q1 -> RST)', () => {
+    const clk = makeComp('clk', 'CLOCK', { frequency: 5 });
+    const cnt = makeComp('cnt', 'COUNTER_4BIT');
+    const rstAnd = makeComp('rst_and', 'AND');
+    const disp = makeComp('hex', 'HEX_DISPLAY');
+    const circuit: CircuitData = {
+      components: [clk, cnt, rstAnd, disp],
+      wires: [
+        makeWire('c1', 'clk', 'out', 'cnt', 'clk'),
+        makeWire('c2', 'cnt', 'q3', 'rst_and', 'a'),
+        makeWire('c3', 'cnt', 'q1', 'rst_and', 'b'),
+        makeWire('c4', 'rst_and', 'y', 'cnt', 'rst'),
+        makeWire('c5', 'cnt', 'q3', 'hex', 'd3'),
+        makeWire('c6', 'cnt', 'q2', 'hex', 'd2'),
+        makeWire('c7', 'cnt', 'q1', 'hex', 'd1'),
+        makeWire('c8', 'cnt', 'q0', 'hex', 'd0'),
+      ],
+    };
+
+    const st = createInitialRuntimeState();
+    const initialR = solveCircuitStep(circuit, st, 0);
+    const seen = new Set<number>([initialR.telemetryById.hex.logicState ?? 0]);
+    const seq: number[] = [initialR.telemetryById.hex.logicState ?? 0];
+    let prev = seq[0];
+    // Step 2.2s at 5Hz clock (~11 rising edges -> must cycle 0..9 and wrap back to 0 without hitting 10..15)
+    for (let i = 0; i < 220; i++) {
+      const r = solveCircuitStep(circuit, st, 0.01);
+      const val = r.telemetryById.hex.logicState ?? -1;
+      expect(val).toBeGreaterThanOrEqual(0);
+      expect(val).toBeLessThanOrEqual(9);
+      seen.add(val);
+      if (val !== prev) {
+        seq.push(val);
+        prev = val;
+      }
+    }
+    expect(seen.size).toBe(10);
+    expect(seq.slice(0, 11)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0]);
+  });
+
+  it('simulates TIMER_555 window comparators and self-oscillating astable multivibrator', () => {
+    const gnd = makeComp('g', 'GROUND');
+    const vcc = makeComp('vcc', 'DC_SOURCE', { voltage: 5 });
+    const vin = makeComp('vin', 'DC_SOURCE', { voltage: 0.8 });
+    const u555 = makeComp('u555', 'TIMER_555');
+    const schmittCircuit: CircuitData = {
+      components: [gnd, vcc, vin, u555],
+      wires: [
+        makeWire('s1', 'vcc', 'neg', 'g', 'gnd'),
+        makeWire('s2', 'vin', 'neg', 'g', 'gnd'),
+        makeWire('s3', 'vcc', 'pos', 'u555', 'vcc'),
+        makeWire('s4', 'g', 'gnd', 'u555', 'gnd'),
+        makeWire('s5', 'vin', 'pos', 'u555', 'trig'),
+        makeWire('s6', 'vin', 'pos', 'u555', 'thres'),
+      ],
+    };
+
+    const stSchmitt = createInitialRuntimeState();
+    const rLow = solveCircuitStep(schmittCircuit, stSchmitt, 0);
+    expect(rLow.telemetryById.u555.logicState).toBe(1);
+    // Enter hysteresis window [1.67V, 3.33V] -> must retain 1
+    vin.props.voltage = 2.5;
+    const rHoldHigh = solveCircuitStep(schmittCircuit, stSchmitt, 0);
+    expect(rHoldHigh.telemetryById.u555.logicState).toBe(1);
+    // Exceed 2/3 VCC -> flip to 0
+    vin.props.voltage = 4.0;
+    const rHigh = solveCircuitStep(schmittCircuit, stSchmitt, 0);
+    expect(rHigh.telemetryById.u555.logicState).toBe(0);
+    // Return into hysteresis window -> must retain 0
+    vin.props.voltage = 2.5;
+    const rHoldLow = solveCircuitStep(schmittCircuit, stSchmitt, 0);
+    expect(rHoldLow.telemetryById.u555.logicState).toBe(0);
+
+    // Classic Astable: R1=10k, R2=10k, C=10uF, VCC=5V -> T ~ 0.208s
+    const astGnd = makeComp('g', 'GROUND');
+    const astVcc = makeComp('vcc', 'DC_SOURCE', { voltage: 5 });
+    const r1 = makeComp('r1', 'RESISTOR', { resistance: 10000 });
+    const r2 = makeComp('r2', 'RESISTOR', { resistance: 10000 });
+    const cap = makeComp('c1', 'CAPACITOR', { capacitance: 10 });
+    const ast555 = makeComp('u555', 'TIMER_555');
+    const astCircuit: CircuitData = {
+      components: [astGnd, astVcc, r1, r2, cap, ast555],
+      wires: [
+        makeWire('a1', 'vcc', 'neg', 'g', 'gnd'),
+        makeWire('a2', 'vcc', 'pos', 'u555', 'vcc'),
+        makeWire('a3', 'g', 'gnd', 'u555', 'gnd'),
+        makeWire('a4', 'vcc', 'pos', 'r1', 'a'),
+        makeWire('a5', 'r1', 'b', 'u555', 'dis'),
+        makeWire('a6', 'r1', 'b', 'r2', 'a'),
+        makeWire('a7', 'r2', 'b', 'u555', 'thres'),
+        makeWire('a8', 'r2', 'b', 'u555', 'trig'),
+        makeWire('a9', 'r2', 'b', 'c1', 'pos'),
+        makeWire('a10', 'c1', 'neg', 'g', 'gnd'),
+      ],
+    };
+
+    const stAst = createInitialRuntimeState();
+    let transitions = 0;
+    let lastOut = -1;
+    let maxVcPostStart = 0;
+    for (let i = 0; i < 300; i++) {
+      const r = solveCircuitStep(astCircuit, stAst, 0.002);
+      const outBit = r.telemetryById.u555.logicState ?? 0;
+      if (lastOut !== -1 && outBit !== lastOut) transitions++;
+      lastOut = outBit;
+      if (i > 20) {
+        maxVcPostStart = Math.max(maxVcPostStart, r.telemetryById.c1.voltageDrop);
+      }
+    }
+    expect(transitions).toBeGreaterThanOrEqual(4);
+    expect(maxVcPostStart).toBeGreaterThan(3.1);
+    expect(maxVcPostStart).toBeLessThan(3.6);
+  });
 });

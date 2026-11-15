@@ -14,10 +14,10 @@ import { usePonderStore } from '../src/store/usePonderStore';
 
 const ALL_CATALOG_TYPES = Object.keys(COMPONENT_CATALOG) as ComponentType[];
 
-describe('Create-Mod Style Ponder System (All 45 Circuit Modules)', () => {
+describe('Create-Mod Style Ponder System (All 46 Circuit Modules)', () => {
   it('defines complete storyboard specs for every single ComponentType in catalog', () => {
-    expect(ALL_CATALOG_TYPES.length).toBe(45);
-    expect(ALL_PONDER_TYPES.length).toBe(45);
+    expect(ALL_CATALOG_TYPES.length).toBe(46);
+    expect(ALL_PONDER_TYPES.length).toBe(46);
 
     for (const type of ALL_CATALOG_TYPES) {
       const spec = PONDER_DATA[type];
@@ -37,14 +37,14 @@ describe('Create-Mod Style Ponder System (All 45 Circuit Modules)', () => {
     }
   });
 
-  it('registers 45 distinct 3D diorama builder functions (one unique showcase per module)', () => {
+  it('registers 46 distinct 3D diorama builder functions (one unique showcase per module)', () => {
     const builders = ALL_CATALOG_TYPES.map((t) => PONDER_SCENE_BUILDERS[t]);
     expect(builders.every((fn) => typeof fn === 'function')).toBe(true);
     const uniqueFnSet = new Set(builders);
-    expect(uniqueFnSet.size).toBe(45);
+    expect(uniqueFnSet.size).toBe(46);
   });
 
-  it('instantiates, animates, reads telemetry metrics, and disposes all 45 3D dioramas cleanly', () => {
+  it('instantiates, animates, reads telemetry metrics, and disposes all 46 3D dioramas cleanly', () => {
     const pedestal = buildCreatePedestal();
     expect(pedestal).toBeInstanceOf(THREE.Group);
     expect(pedestal.children.length).toBeGreaterThanOrEqual(25);

@@ -775,6 +775,13 @@ export const PropertyInspector: React.FC<{ compact?: boolean }> = ({ compact = t
             />
           </label>
         )}
+
+        {comp.type === 'TIMER_555' && (
+          <div className="p-2 rounded bg-amber-950/30 border border-amber-500/30 text-[10px] text-amber-200/90 space-y-1 leading-relaxed">
+            <div className="font-semibold text-amber-300">NE555 引脚功能速查</div>
+            <div>VCC/GND 供电后建立 [1/3, 2/3]·VCC 双门限；TRIG &lt; 1/3 VCC 置位 Q=1（OUT=VCC，DIS 开路）；THRES &gt; 2/3 VCC 复位 Q=0（OUT=0，DIS 对地放电）。</div>
+          </div>
+        )}
       </div>
 
       {/* Live Telemetry Box */}

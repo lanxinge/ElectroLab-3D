@@ -253,6 +253,11 @@ export function deriveInstancePonderContext(
       initialParams.vin = Number((pinV(telemetry, 'inp') - pinV(telemetry, 'inm')).toFixed(2));
       break;
     }
+    case 'TIMER_555': {
+      const vSup = Math.max(0, pinV(telemetry, 'vcc') - pinV(telemetry, 'gnd'));
+      initialParams.vcc = Math.min(15, Math.max(3, Number((vSup > 0.5 ? vSup : 5).toFixed(1))));
+      break;
+    }
     case 'TRANSFORMER': {
       const vPri = pinV(telemetry, 'p1') - pinV(telemetry, 'p2');
       initialParams.turnsRatio = Number(comp.props.ratio ?? 2.0);
@@ -1064,6 +1069,55 @@ export function deriveInstancePonderContext(
         causalExplanation = `【交互试算 · 工作台原实测：${measuredSummary}】按经典 -3× 反相放大示例输入 Vin = ${effVin.toFixed(
           1
         )} V 推算，输出 Vout ≈ ${estInvOut.toFixed(1)} V（工作台实测闭环增益取决于外接 Rf/Rin 电阻）。`;
+      }
+      break;
+    }
+
+    case 'TIMER_555': {
+      const vVcc = pinV(telemetry, 'vcc');
+      const vGnd = pinV(telemetry, 'gnd');
+      const vSup = Math.max(0, vVcc - vGnd);
+      const vTrig = pinV(telemetry, 'trig');
+      const vThres = pinV(telemetry, 'thres');
+      const vOut = pinV(telemetry, 'out');
+      const vLo = vGnd + vSup / 3;
+      const vHi = vGnd + (2 * vSup) / 3;
+      const outBit = vSup >= 1.5 && vOut - vGnd >= 0.5 * vSup ? 1 : 0;
+      measuredSummary = `VCC=${vSup.toFixed(1)}V, TRIG=${vTrig.toFixed(2)}V, THRES=${vThres.toFixed(2)}V, OUT=${vOut.toFixed(2)}V (${outBit})`;
+
+      if (!isOverridden) {
+        liveMetrics.push(
+          { label: '供电 VCC-GND', value: `${vSup.toFixed(2)} V`, accent: 'amber' },
+          { label: '门限窗口 [1/3, 2/3]', value: `[${vLo.toFixed(2)}V, ${vHi.toFixed(2)}V]`, accent: 'sky' },
+          { label: '实测触发 / 阈值', value: `${vTrig.toFixed(2)}V / ${vThres.toFixed(2)}V`, accent: 'violet' },
+          { label: '输出 OUT / 内部 Q', value: `${vOut.toFixed(2)}V (Q=${outBit})`, accent: outBit ? 'emerald' : 'rose' }
+        );
+        causalExplanation =
+          vSup < 1.5
+            ? `${comp.label} 当前供电差 VCC - GND = ${vSup.toFixed(2)} V（低于 1.5 V 启动电压），内部比较器尚未建立 1/3 与 2/3 分压基准。`
+            : `${comp.label} 由工作台实测供电 ${vSup.toFixed(2)} V 建立窗口 [${vLo.toFixed(2)}V, ${vHi.toFixed(
+                2
+              )}V]。当前 TRIG = ${vTrig.toFixed(2)} V、THRES = ${vThres.toFixed(2)} V，锁存输出 Q = ${outBit}（OUT = ${vOut.toFixed(
+                2
+              )} V，DIS ${outBit ? '高阻截止令电容充电' : '对地导通令电容放电'}）。`;
+      } else {
+        const effVcc = paramNum(activeParams, 'vcc', initialParams.vcc);
+        const effR = Math.max(1, paramNum(activeParams, 'rKohm', 10)) * 1e3;
+        const effC = Math.max(1, paramNum(activeParams, 'cUf', 10)) * 1e-6;
+        const tPeriod = 0.693 * 3 * effR * effC;
+        const freq = 1 / Math.max(1e-6, tPeriod);
+        liveMetrics.push(
+          { label: '试算门限 [1/3, 2/3]', value: `[${(effVcc / 3).toFixed(2)}V, ${((2 * effVcc) / 3).toFixed(2)}V]`, accent: 'amber' },
+          { label: '多谐周期 T (R1=R2)', value: `${(tPeriod * 1000).toFixed(1)} ms`, accent: 'sky' },
+          { label: '多谐输出频率 f', value: `${freq.toFixed(2)} Hz (D=66.7%)`, accent: 'emerald' }
+        );
+        causalExplanation = `【交互试算 · 工作台原实测：${measuredSummary}】设 VCC = ${effVcc.toFixed(
+          1
+        )} V、R₁=R₂=${(effR / 1000).toFixed(0)} kΩ、C=${(effC * 1e6).toFixed(0)} μF：内部门限窗口 [${(
+          effVcc / 3
+        ).toFixed(2)}V, ${((2 * effVcc) / 3).toFixed(2)}V]，典型多谐周期 T ≈ ${(tPeriod * 1000).toFixed(
+          1
+        )} ms（f ≈ ${freq.toFixed(2)} Hz）。`;
       }
       break;
     }

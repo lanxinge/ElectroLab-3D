@@ -121,6 +121,7 @@ export interface TutorialLesson {
 
 export interface TutorialChapter {
   id: string;
+  volume: 'vol1' | 'vol2';
   chapterNumber: number;
   title: string;
   subtitle: string;

@@ -47,6 +47,7 @@ import {
   buildLampDiorama,
   buildMux21Diorama,
   buildNmosDiorama,
+  buildTimer555Diorama,
   buildTransformerDiorama,
   buildZenerDiodeDiorama,
 } from './ponderScenesExpanded';
@@ -103,4 +104,5 @@ export const PONDER_SCENE_BUILDERS: Record<ComponentType, PonderDioramaBuilder> 
   IC_PORT_IN: buildIcPortInDiorama,
   IC_PORT_OUT: buildIcPortOutDiorama,
   CUSTOM_IC: buildCustomIcDiorama,
+  TIMER_555: buildTimer555Diorama,
 };

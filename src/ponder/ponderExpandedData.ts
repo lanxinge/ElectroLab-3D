@@ -15,7 +15,8 @@ export type ExpandedPonderType =
   | 'CUSTOM_TRUTH_16'
   | 'IC_PORT_IN'
   | 'IC_PORT_OUT'
-  | 'CUSTOM_IC';
+  | 'CUSTOM_IC'
+  | 'TIMER_555';
 
 export const PONDER_EXPANDED_SPECS: Record<ExpandedPonderType, PonderModuleSpec> = {
   INF_SOURCE: {
@@ -788,6 +789,66 @@ export const PONDER_EXPANDED_SPECS: Record<ExpandedPonderType, PonderModuleSpec>
         title: '支持 4 层深度模块化套娃级联',
         narration: '你可以用自己封装的半加器芯片搭出全加器芯片，再封装成 4 位加法器与 ALU——真实还原现代芯片工程设计流。',
         camera: { position: [-3.4, 2.8, 3.9], target: [0, 0.72, 0] },
+      },
+    ],
+  },
+
+  TIMER_555: {
+    type: 'TIMER_555',
+    title: 'NE555 时基集成定时器',
+    englishTitle: '555 Precision Timer (Window Comparators + RS Latch)',
+    badge: '模数混合经典 · 多谐/单稳/施密特',
+    summary: '芯片内部用三颗精确 5kΩ 电阻把 VCC 分为 1/3 和 2/3 两档基准门限，驱动上下双比较器与 RS 触发器，从而用外部一只电容与两枚电阻自发振荡出精准方波脉冲！',
+    formulas: [
+      { expr: 'V_hi = (2/3)·Vcc ，当 THRES > V_hi 时复位 Q = 0（OUT=0，DIS 导通放电）', note: '上限比较器决定充电何时截断' },
+      { expr: 'V_lo = (1/3)·Vcc ，当 TRIG < V_lo 时置位 Q = 1（OUT=VCC，DIS 截止充电）', note: '下限比较器决定放电何时反转' },
+      { expr: '多谐振荡频率 f ≈ 1.44 / [(R₁ + 2R₂)·C]，周期 T ≈ 0.693(R₁ + 2R₂)C', note: '充电耗时 tH=0.693(R1+R2)C，放电耗时 tL=0.693R2·C' },
+    ],
+    keyTakeaways: [
+      '把 TRIG 与 THRES 并联后接外电容：当电压在 1/3 Vcc 与 2/3 Vcc 之间来回摆动，无需外部时钟就能自激产生连续方波脉冲！',
+      '因为门限精确跟踪 VCC 的比例（1/3 与 2/3），只要电源在同一范围线性缩放，RC 充放电定时周期几乎与 VCC 无关，抗电源波动能力极强。',
+      '若令 R₁ = 10kΩ、R₂ = 10kΩ、C = 10μF，则周期间隔约 208ms（约 4.8Hz，占空比约 66.7%）。',
+    ],
+    controls: [
+      { key: 'vcc', label: '供电电压 VCC', kind: 'slider', min: 3, max: 15, step: 0.5, unit: 'V', defaultValue: 5 },
+      { key: 'rKohm', label: '定时电阻 (R₁=R₂)', kind: 'slider', min: 1, max: 50, step: 1, unit: 'kΩ', defaultValue: 10 },
+      { key: 'cUf', label: '定时电容 C', kind: 'slider', min: 1, max: 100, step: 1, unit: 'μF', defaultValue: 10 },
+    ],
+    callouts: [
+      { id: 'ladder', title: '内部 3×5kΩ 分压梯', detail: '将 VCC 精准切成 1/3 Vcc 与 2/3 Vcc 两档参考电平', worldPos: [-1.1, 0.72, -0.35], color: '#f59e0b' },
+      { id: 'rsCore', title: 'RS 触发器与双比较器核', detail: '电容触及上下限窗口边界时瞬时翻转锁存状态', worldPos: [0, 0.75, 0], color: '#38bdf8' },
+      { id: 'disStage', title: '集电极开路放电管 DIS', detail: 'Q=0 时对地导通泄放电容电荷，Q=1 时高阻关断', worldPos: [0.35, 0.48, -0.65], color: '#fb7185' },
+      { id: 'outPin', title: '推挽方波输出级 OUT', detail: '直接驱动 LED、扬声器或四位计数器时钟', worldPos: [1.35, 0.9, 0], color: '#22c55e' },
+    ],
+    steps: [
+      {
+        id: 'step-1',
+        title: '三颗 5kΩ 电阻奠定“双门限窗口”',
+        narration: '内部 5kΩ+5kΩ+5kΩ 串联分压梯为双比较器建立绝对比例基准，电容电压只需在中间窗口往返跑圈即可。',
+        renderNarration: (p) => {
+          const vcc = p.vcc ?? 5;
+          return `当前 VCC = ${vcc.toFixed(1)} V 时，内部三个 5kΩ 电阻立即可得下限 V_lo = 1/3 VCC = ${(vcc / 3).toFixed(2)} V、上限 V_hi = 2/3 VCC = ${((2 * vcc) / 3).toFixed(2)} V。`;
+        },
+        camera: { position: [4.1, 3.0, 4.1], target: [0, 0.65, 0] },
+      },
+      {
+        id: 'step-2',
+        title: '充到 2/3 Vcc 就放气，放到 1/3 Vcc 又充气',
+        narration: '观察左侧电容水位柱在两根黄铜门限环之间锯齿状起伏，每次撞线瞬间触发器立刻变色切换！',
+        renderNarration: (p) => {
+          const r = (p.rKohm ?? 10) * 1e3;
+          const c = (p.cUf ?? 10) * 1e-6;
+          const tMs = 0.693 * 3 * r * c * 1000;
+          const freq = 1000 / Math.max(0.1, tMs);
+          return `取 R₁ = R₂ = ${(r / 1000).toFixed(0)} kΩ、C = ${(c * 1e6).toFixed(0)} μF：单周期 T = 0.693×(R₁+2R₂)C ≈ ${tMs.toFixed(1)} ms，振荡频率 f ≈ ${freq.toFixed(2)} Hz（高电平占空比 66.7%）。`;
+        },
+        camera: { position: [0.1, 2.3, 4.4], target: [0, 0.65, 0] },
+      },
+      {
+        id: 'step-3',
+        title: '从模拟定时桥接到数字计数体系',
+        narration: 'OUT 端干脆利落的 0V/VCC 脉冲可以直接接入 D 触发器或四位计数器 CLK 脚，打通模拟时钟与数字时序电路！',
+        camera: { position: [-3.5, 2.8, 3.9], target: [0, 0.65, 0] },
       },
     ],
   },
