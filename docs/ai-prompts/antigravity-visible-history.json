@@ -1,0 +1,337 @@
+{
+  "source": "Antigravity 本地会话搜索索引（只读提取的用户消息与可见回复）",
+  "conversation_id": "57ff23a6-5208-4eb1-94d9-2a5a6f3f7e9a",
+  "scope": "不包含模型内部推理或完整工具调用；工程验证另见 Git 演进与测试记录。",
+  "messages": [
+    {
+      "step": 0,
+      "role": "user",
+      "text": "我们要在当前文件夹里开发做出一款面向本科大学生的电工学模拟器，在最基础的情况下我们将拥有以下功能：全栈式应用，3D可自由拖拽，导线链接的模电数电模拟器，实时计算各组件电压电流负载等信息，对于数电拥有实时计算真值表绘制卡诺图等能力，另外也支持侧栏绘制2D经典电路图。用户登录后可以在论坛中发表自己的电路作品并互相交流。",
+      "chunk": 0
+    },
+    {
+      "step": 86,
+      "role": "assistant",
+      "text": "I have built the full-stack ElectroLab 3D application, verified all 13 automated engine and API tests plus the production TypeScript/Vite build, started both the backend (`3001`) and frontend (`5173`) servers, and launched the browser verification agent to inspect and test the live UI end-to-end. Waiting for the browser verification report.",
+      "chunk": 0
+    },
+    {
+      "step": 119,
+      "role": "assistant",
+      "text": "Running the final test suite (`npm test`) and production build (`npm run build`) after the header layout fix. Waiting for completion.",
+      "chunk": 0
+    },
+    {
+      "step": 121,
+      "role": "assistant",
+      "text": "已在当前工作目录 `e:\\codelearn\\Circuit` 中开发完成面向本科大学生的全栈电工学仿真应用 **ElectroLab 3D · 本科电工学全栈仿真实验室**。\n\n---\n\n### 核心功能与模块实现\n\n1. **3D 可自由拖拽与导线连接的交互实验台**\n   - 实现文件：[Workbench3DEngine.ts](file:///e:/codelearn/Circuit/src/sim3d/Workbench3DEngine.ts)、[meshes.ts](file:///e:/codelearn/Circuit/src/sim3d/meshes.ts)、[Workbench3DView.tsx](file:///e:/codelearn/Circuit/src/components/Workbench3DView.tsx)\n   - 内置 30 类模电/数电/仪表元件（[componentCatalog.ts](file:///e:/codelearn/Circuit/src/engine/componentCatalog.ts)）：包含动态 IEC 4 色环电阻、电流驱动发光 LED、旋钮电位器、电解电容、漆包电感、单刀单掷/双掷开关、硅二极管、NPN 三极管、集成运放、直/交流与恒流源、数字电压表/电流表、逻辑电平开关、方波时钟、逻辑探针、7 段十六进制数码管及基本门电路/半加器/全加器/D 触发器。\n   - 支持从左侧元件库点击或拖放至 3D 实验台、水平面自由拖拽、引脚吸附与弧形 `CatmullRomCurve3` 3D 导线连接、随支路电流大小与方向实时流动的电流粒子动画、3D 开关/逻辑电平点击切换、以及过载红色脉冲警示环与 3D 悬浮参数标签。\n\n2. **数模混合实时电路求解引擎（MNA + Newton-Raphson + 暂态响应）**\n   - 实现文件：[mnaSolver.ts](file:///e:/codelearn/Circuit/src/engine/mnaSolver.ts)、[BottomAnalysisDock.tsx](file:///e:/codelearn/Circuit/src/components/BottomAnalysisDock.tsx)、[PropertyInspector.tsx](file:///e:/codelearn/Circuit/src/components/PropertyInspector.tsx)\n   - 采用改良节点分析法（MNA）求解各节点电位与支路电流，包含 `GMIN = 1e-12` 防奇异稳定化、电源内阻防短路保护、分立孤岛自动参考地兜底、后向欧拉（Backward-Euler）电容/电感暂态伴随模型、牛顿-拉夫逊（Newton-Raphson）非线性二极管/LED/NPN 三极管（含截止/放大/饱和区识别）与轨对轨饱和运放求解，以及 5V/0V 数字-模拟桥梁。\n   - 实时计算每个元件的电压 $V$、电流 $I$、功耗 $P$ 与额定功率负载率（$P / P_{\\max}$），并在底部提供实时电参量汇总表与 4 通道 Canvas 波形示波器。\n\n3. **数电实时真值表、格雷码卡诺图与反向电路综合**\n   - 实现文件：[digitalLogicAnalysis.ts](file:///e:/codelearn/Circuit/src/engine/digitalLogicAnalysis.ts)、[KarnaughMapPanel.tsx](file:///e:/codelearn/Circuit/src/components/KarnaughMapPanel.tsx)\n   - 自动识别电路中的 `LOGIC_IN` 变量与 `LOGIC_OUT`/门电路输出端，实时遍历计算 $2^N$ 真值表（高亮当前开关组合，点击任意行可一键切换工作台开关状态）。\n   - 绘制 1~4 变量标准**格雷码（`00, 01, 11, 10`）卡诺图**，内置 Quine-McCluskey + 精确最小覆盖算法，用不同颜色的 SVG 圆角框与边缘/四角环绕（wrap-around）弧线标出质蕴涵项圈，输出标准最小项和 $\\sum m(\\dots)$ 与最简逻辑表达式。\n   - 支持“**卡诺图化简与反向综合门电路**”模式：点击真值表或卡诺图格子即可一键自动生成并连线完整的组合逻辑门电路到 3D+2D 工作台。\n\n4. **右侧 2D 经典电路原理图同步编辑侧栏**\n   - 实现文件：[Schematic2DSidebar.tsx](file:///e:/codelearn/Circuit/src/components/Schematic2DSidebar.tsx)、[useCircuitStore.ts](file:///e:/codelearn/Circuit/src/store/useCircuitStore.ts)\n   - 与 3D 工作台共享状态实时双向同步：在 2D 侧栏中拖拽经典电路符号、旋转 90°、点击端子进行正交曼哈顿走线、或点击开关切换，均会实时同步至 3D 场景与求解器；支持暗色 CAD / 经典白底工程图纸切换、一键自动排版与 3D+2D 分屏/纯 3D/纯 2D 切换。\n\n5. **全栈用户认证、云端项目库与电路交流论坛**\n   - 后端实现：[db.ts](file:///e:/codelearn/Circuit/server/db.ts)（Node 内置 `node:sqlite`）、[auth.ts](file:///e:/codelearn/Circuit/server/auth.ts)（`scrypt` 密码加盐哈希 + HMAC-SHA256 JWT）、[seed.ts](file:///e:/codelearn/Circuit/server/seed.ts)、[app.ts](file:///e:/codelearn/Circuit/server/app.ts)、[index.ts](file:///e:/codelearn/Circuit/server/index.ts)\n   - 前端界面：[ForumView.tsx](file:///e:/codelearn/Circuit/src/components/ForumView.tsx)、[PublishCircuitModal.tsx](file:///e:/codelearn/Circuit/src/components/PublishCircuitModal.tsx)、[MyProjectsModal.tsx](file:///e:/codelearn/Circuit/src/components/MyProjectsModal.tsx)、[AuthModal.tsx](file:///e:/codelearn/Circuit/src/components/AuthModal.tsx)\n   - 预置 5 个经典本科电工学实验（[circuitPresets.ts](file:///e:/codelearn/Circuit/src/presets/circuitPresets.ts)）：LED 限流调光与功率负载分析、一阶 RC 暂态充放电、三人表决器与卡诺图化简、一位全加器与七段数码管译码、运放反相比例放大器。\n   - 用户注册/登录后可保存云端电路项目（亦支持 JSON 导入导出），并在论坛中发表附带 2D 原理图预览的作品、分类搜索、点赞、发表评论讨论，以及一键 **Fork 到 3D+2D 工作台运行**。\n\n---\n\n### 验证结果\n\n- **自动化单测与接口集成测试（`npm test`）**：在最终修改后运行，全部通过（2 个测试文件共 13 项测试：`tests/engine.test.ts` 10 项通过、`tests/api.test.ts` 3 项通过）。\n- **类型检查与生产构建（`npm run build`）**：在最终修改后运行，`tsc --noEmit && vite build` 以退出码 `0` 构建成功，生成 [dist](file:///e:/codelearn/Circuit/dist/index.html)。\n- **浏览器端到端验证**：已在 `http://127.0.0.1:5173` 完成实际页面验证（3D/2D 联动、电位器与开关实时电参量更新、三人表决器真值表与卡诺图圈选、演示账号登录、论坛发帖/评论/Fork 回工作台，以及 `1280×800` 顶部导航栏单行布局复核）。\n\n---\n\n### 启动与体验方式\n\n在 `e:\\codelearn\\Circuit` 目录下运行（详见 [package.json](file:///e:/codelearn/Circuit/package.json)）：\n\n```bash\nnpm run dev\n```\n\n启动后访问 `http://127.0.0.1:5173/`（后端 API 运行在 `http://127.0.0.1:3001`）。\n\n- **演示账号**（登录弹窗亦提供一键登录按钮）：\n  - 学生：`linxiao` / 密码 `123456`\n  - 助教：`chenyu` / 密码 `123456`\n  - 学生：`suqing` / 密码 `123456`",
+      "chunk": 0
+    },
+    {
+      "step": 122,
+      "role": "user",
+      "text": "git库提交第一版，下一步我们加入一个思索功能，鼠标在一个电路模块上长期悬置时，就会出现思索的选项，点击后将弹出像是mc机械动力那样的思索介绍图，每个模块都要有单独的特色3D演示图",
+      "chunk": 0
+    },
+    {
+      "step": 220,
+      "role": "assistant",
+      "text": "已启动前后端开发服务并派遣浏览器验证代理对“思索（Ponder）”悬停触发与 3D 演示剧场进行端到端检查，正在等待检查结果。",
+      "chunk": 0
+    },
+    {
+      "step": 251,
+      "role": "assistant",
+      "text": "已修复“思索（Ponder）”弹窗的标注框防重叠与横向分栏断点，并已通知浏览器验证代理重新检查渲染结果。",
+      "chunk": 0
+    },
+    {
+      "step": 262,
+      "role": "assistant",
+      "text": "正在清理临时数据并执行最终测试与生产构建，等待构建结果返回。",
+      "chunk": 0
+    },
+    {
+      "step": 264,
+      "role": "assistant",
+      "text": "已完成 **第一版（v1.0）Git 初始化与提交**，并在此基础上完整实现与验证了仿 MC 机械动力（Create Mod）风格的 **全模块 3D「思索（Ponder）」原理剧场系统**。\n\n---\n\n### 一、第一版 Git 库提交结果\n- 新增 [.gitignore](file:///e:/codelearn/Circuit/.gitignore)（排除 `node_modules/`、`dist/`、`data/`、`*.sqlite*`、`*.log`、`.DS_Store`）。\n- 已执行 `git init` 并完成首个干净提交：\n  - **Commit**: `2dd0f92` (`feat: ElectroLab 3D v1.0 本科电工学全栈仿真实验室初始版本`)，包含 38 个源码、配置及测试文件。\n\n---\n\n### 二、Create Mod 风格「思索（Ponder）」功能实现\n\n#### 1. 长期悬置（Dwell Hover）与多入口触发体系\n- 状态与时序控制位于 [usePonderStore.ts](file:///e:/codelearn/Circuit/src/store/usePonderStore.ts) 和 [PonderHoverOverlay.tsx](file:///e:/codelearn/Circuit/src/components/PonderHoverOverlay.tsx)：\n  - 悬停经过 `PONDER_DWELL_SHOW_MS`（`180ms`）后出现平滑蓄力进度条；达到 `PONDER_DWELL_READY_MS`（`800ms`）后解锁可点击的 **「思索 · 模块名」** 浮动触发卡片，并支持 **`W` 快捷键**直接打开。\n  - 首次进入目标时锁定弹出锚点坐标（不随指针微移逃逸），离焦后提供 `PONDER_EXIT_GRACE_MS`（`400ms`）宽限计时及 `isPopupHovered` 锁，方便鼠标平滑移上弹窗点击；按下拖拽或连线操作时立即清除悬停提示。\n- 全工作区接入覆盖：\n  - **3D 工作台**：[Workbench3DEngine.ts](file:///e:/codelearn/Circuit/src/sim3d/Workbench3DEngine.ts)（`onHoverComponentChange` 射线检测组件悬停）与 [Workbench3DView.tsx](file:///e:/codelearn/Circuit/src/components/Workbench3DView.tsx)。\n  - **左侧元件库**：[ComponentPalette.tsx](file:///e:/codelearn/Circuit/src/components/ComponentPalette.tsx) 各元件卡片长悬停触发。\n  - **右侧 2D 经典原理图**：[Schematic2DSidebar.tsx](file:///e:/codelearn/Circuit/src/components/Schematic2DSidebar.tsx) SVG 元件符号长悬停触发。\n  - **右侧属性探针面板**：[PropertyInspector.tsx](file:///e:/codelearn/Circuit/src/components/PropertyInspector.tsx) 新增直达 **「思索」** 按钮；弹窗及悬浮提示统一挂载于 [App.tsx](file:///e:/codelearn/Circuit/src/App.tsx)。\n\n#### 2. 30 个电路模块的独立 3D 专属演示与分步剧场\n- 剧场舞台引擎 [Ponder3DStage.ts](file:///e:/codelearn/Circuit/src/ponder/Ponder3DStage.ts) 与公共 3D 物理积木 [ponderPrimitives.ts](file:///e:/codelearn/Circuit/src/ponder/ponderPrimitives.ts)：\n  - 渲染 Create Mod 标志性的 `5×5` 格纹悬浮底座、黄铜边框、三点布光及平滑相机关键帧切换（支持随时鼠标拖拽旋转 / 滚轮缩放，以及基于屏幕投影的 SVG 引线气泡防重叠排布算法）。\n- 全部 **30 种 `ComponentType` 均拥有独立编写的专属 3D 动态演示场景与教案剧本**（注册于 [ponderSceneRegistry.ts](file:///e:/codelearn/Circuit/src/ponder/ponderSceneRegistry.ts)，剧本与公式位于 [ponderAnalogData.ts](file:///e:/codelearn/Circuit/src/ponder/ponderAnalogData.ts)、[ponderDigitalData.ts](file:///e:/codelearn/Circuit/src/ponder/ponderDigitalData.ts) 与 [ponderData.ts](file:///e:/codelearn/Circuit/src/ponder/ponderData.ts)）：\n  - **16 个模电/电源/仪表模块**（[ponderScenesAnalog.ts](file:///e:/codelearn/Circuit/src/ponder/ponderScenesAnalog.ts)）：如直流源电荷泵升、`AC_SOURCE` 旋转相量与 3D 实时正弦柱波、恒流源定速水车与自适应端压柱、`GROUND` 零电位基准铜排（可切换浮地飘移对比）、色环电阻 IEC 四环动态变色 + 内部晶格发热（`computeResistorBandColors`）、旋转电位器滑臂分压、电容平行极板电场（直流隔直饱和 vs 交流位移通流）、电感磁通环与高频楞次反电动势壁垒、SPST/SPDT 刀闸切换、二极管 PN 结耗尽层厚薄开合、LED 复合光子发射、BJT 基极控制比例液压闸阀、运放虚短平衡跷跷板与反相输入输出标尺、电压表并/串联对比、电流表叶轮流量计等。\n  - **14 个数电逻辑模块**（[ponderScenesDigital.ts](file:///e:/codelearn/Circuit/src/ponder/ponderScenesDigital.ts)）：如数字拨码开关、`CLOCK` 石英谐振行进矩形波、逻辑探针 2.5V 阈值判决灯塔、`HEX_DISPLAY` 四位 8421 输入直驱 3D 七段数码管、`AND` 串联双吊桥、`OR` 并联双通道、`NOT` 机械跷跷板反相器、`NAND` / `NOR` 反相抑制球阀、`XOR` 差动对比齿轮、`XNOR` 对等锁舌对齐、`HALF_ADDER` 分层 `XOR + AND`、`FULL_ADDER` `HA1 + HA2 + OR` 三输入流水线，以及 `D_FF` 上升沿 `0→1` 快门锁存（非上升沿期间修改 `D` 保持 `Q` 不变）。\n- 剧场交互界面 [PonderModal.tsx](file:///e:/codelearn/Circuit/src/components/PonderModal.tsx)：支持交互式参数滑块/拨动开关实时驱动 3D 模型与物理读数徽章、章节时间轴（播放/暂停/上下步/重播）、公式与本科要点卡片、30 模块分类快速切换以及 **「加入当前工作台」**。\n\n---\n\n### 三、测试、构建与端到端验证结果\n\n1. **自动化单元测试与 TypeScript / Vite 生产构建**（最后一次代码改动后执行并全部通过）：\n   - 执行 `npm test`（[tests/ponder.test.ts](file:///e:/codelearn/Circuit/tests/ponder.test.ts)、[tests/engine.test.ts](file:///e:/codelearn/Circuit/tests/engine.test.ts)、[tests/api.test.ts](file:///e:/codelearn/Circuit/tests/api.test.ts)）：**3 个测试文件、18 个用例全部通过**（覆盖 30 个 `PONDER_DATA` 剧本校验、30 个去重 3D 场景构建器函数校验、逐个构建动画刷新与资源释放、`D_FF` 上升沿锁存语义以及 `usePonderStore` 锚点锁定逻辑）。\n   - 执行 `npm run build`（`tsc --noEmit && vite build`）：**退出码 0**，零类型错误，生成完整 `dist/` 产物。\n2. **真实浏览器端到端检查与截图目视验证**：\n   - 验证了 `http://localhost:5173` 在元件库长悬停 `~800ms` 触发 **思索** 浮标、`RESISTOR` 3D 思索剧场（`IEC 四色环编码` / `内部晶格障碍柱` / `焦耳热辐射` 气泡无重叠、公式卡片与时间轴并排布局完整）、`CAPACITOR` 交直流切换、`FULL_ADDER` 三位输入实时计算、2D 原理图悬停触发及属性面板思索按钮，全程零控制台/页面错误。\n   - 验证结束后已停止临时开发服务后台进程并清理临时 `data/` 运行库。\n3. **当前仓库状态提示**：第一版（`2dd0f92`）已按要求提交在 `main` 分支；本次新增与修改的「思索（Ponder）」系统文件目前保留在工作区供检阅（如需即可提交第二版）。",
+      "chunk": 0
+    },
+    {
+      "step": 265,
+      "role": "user",
+      "text": "提交第二版，然后下一步则是将各种信息面板默认收放进悬浮小球里或者是面板菜单中，支持本地保存和载入电路工程文件，优化模块建模并且进入更多电路模块类型。并且新增无限电阻，无限电源，8槽/16槽自定义真值输入输出芯片等自定义模块。并且支持将一组电路打包成一个集成电路模块永久保存在云端账号上",
+      "chunk": 0
+    },
+    {
+      "step": 588,
+      "role": "assistant",
+      "text": "我已启动前后端开发服务器并指派浏览器自动化验证子代理在 `http://localhost:5173/` 上执行全流程端到端测试（包括默认悬浮收起界面、悬浮小球与面板菜单切换、新增模块与自定义真值芯片编辑器、3D 思索演示、本地 `.elab.json` 导出导入，以及登录后集成电路打包云端持久化与重载验证），等待测试结果返回。",
+      "chunk": 0
+    },
+    {
+      "step": 589,
+      "role": "user",
+      "text": "怎么说",
+      "chunk": 0
+    },
+    {
+      "step": 601,
+      "role": "assistant",
+      "text": "当前进展如下：\n\n1. **后端、引擎与构建已全部通过**：\n   - 24 项单元测试与 API 测试（`npm test`：3 个测试文件、`engine.test.ts` / `ponder.test.ts` / `api.test.ts` 全部通过）与 TypeScript 编译及 Vite 打包（`npm run build`）已顺利通过，零报错。\n2. **浏览器真机 E2E 刚刚卡停的原因**：\n   - 子代理此前已验证完成：默认悬浮收起界面（信息面板默认隐藏、仅显示右下角悬浮小球）、悬浮球与顶部“面板菜单”模式切换、8 槽真值芯片编程器（改写输出状态 `OUT=1000`）、3D 思索原理剧场展示，以及本地 `.elab.json` 导出下载。\n   - 在执行“本地文件上传导入”这一步时，浏览器弹出了文件上传权限确认提示并因等待响应超时（60s）被中止（文件解析逻辑 `parseProjectFile` 已经在 Vitest 单元测试中通过验证）。\n3. **正在收尾最后一步**：\n   - 我已跳过浏览器上传权限步骤，让子代理直接继续完成最后一项 **云端自定义集成电路（Custom IC）打包、账号永久保存与刷新页面持久化校验**，约十几秒后完成后即可清理临时后台服务并向你汇报完整结果。",
+      "chunk": 0
+    },
+    {
+      "step": 612,
+      "role": "assistant",
+      "text": "第二版（3D 思索/Ponder 原理剧场）已提交至 Git 仓库，且第三版所有新特性均已开发完成并通过自动化测试、TypeScript 编译打包及无头浏览器真机验证：\n\n---\n\n### 一、Git 版本状态\n- 第二版提交已完成：`0fbabaa feat: ElectroLab 3D v2.0 新增Create风格全模块3D思索(Ponder)原理剧场`\n- 当前工作区包含尚未提交的第三版完整改动（待你确认体验后可随时提交为 v3.0）。\n\n---\n\n### 二、第三版核心功能实现一览\n\n#### 1. 信息面板默认收起：悬浮小球 & 顶部「面板菜单」\n- **状态管理**：[useUIStore.ts](file:///e:/codelearn/Circuit/src/store/useUIStore.ts) 默认采用 `layoutMode: 'floating'`，并将 `paletteOpen`、`inspectorOpen`、`schematicOpen`、`analysisOpen` 默认全部设为 `false`，打开页面即可拥有无遮挡的全屏 3D 实验台。\n- **可拖拽悬浮小球**：[FloatingPanelOrb.tsx](file:///e:/codelearn/Circuit/src/components/FloatingPanelOrb.tsx) 支持自由拖拽定位，点击展开悬浮菜单控制**元件库**、**属性与实时探针**、**2D 经典电路图**、**示波器 / 真值表 / 卡诺图**的浮窗显隐及一键「全收」，并带有当前开启面板数或过载警报角标。\n- **顶部「面板菜单」与精选提示胶囊**：[HeaderBar.tsx](file:///e:/codelearn/Circuit/src/components/HeaderBar.tsx) 新增「面板菜单」下拉（支持各浮窗独立切换，以及在**悬浮小球**与**经典分栏**排布模式间切换）；[App.tsx](file:///e:/codelearn/Circuit/src/App.tsx) 在属性浮窗收起但选中了元件时提供右上角轻量化精选信息条（可一键展开属性或触发 3D 思索）。\n\n#### 2. 本地电路工程文件保存与载入\n- [projectFileIO.ts](file:///e:/codelearn/Circuit/src/utils/projectFileIO.ts) 提供 `serializeProjectFile`、`downloadProjectFile` 与 `parseProjectFile`，支持将电路导出为 `.elab.json` 工程文件。\n- 顶部栏 [HeaderBar.tsx](file:///e:/codelearn/Circuit/src/components/HeaderBar.tsx) 提供「导出」/「导入」按钮，同时工作台支持直接**拖入本地 `.elab.json` / `.json` 文件**一键载入拓扑。\n\n#### 3. 建模升级与 15 类全新电路模块（共计 45 类模块）\n- **3D 精细建模与自适应 PCB 载体升级**：[meshes.ts](file:///e:/codelearn/Circuit/src/sim3d/meshes.ts) 为模块增加了带铜箔走线与四角固定铜环的自适应 PCB 载板与动态引脚拓扑同步，并配合 [Workbench3DEngine.ts](file:///e:/codelearn/Circuit/src/sim3d/Workbench3DEngine.ts) 的 `meshSignature` 变化检测实现动态芯片无闪烁实时重构；[Schematic2DSidebar.tsx](file:///e:/codelearn/Circuit/src/components/Schematic2DSidebar.tsx) 同步补全全部新器件的 IEEE/IEC 经典 2D 符号与动态引脚框。\n- **新增本科电工学 / 数电常用模块**（定义于 [componentCatalog.ts](file:///e:/codelearn/Circuit/src/engine/componentCatalog.ts) 与 [mnaSolver.ts](file:///e:/codelearn/Circuit/src/engine/mnaSolver.ts)）：\n  - **模拟/功率器件**：齐纳稳压二极管（`ZENER_DIODE`）、N 沟道增强型 MOSFET（`NMOS`）、理想耦合隔离变压器（`TRANSFORMER`）、可视化白炽灯泡（`LAMP`）、可一键复位保险丝（`FUSE`）。\n  - **数字与时序芯片**：二选一数据选择器（`MUX_2_1`）、上升沿 JK 触发器（`JK_FF`）、4 位二进制同步加法计数器（`COUNTER_4BIT`）。\n- **无限元件与自定义编程真值芯片**：\n  - **无限理想电源（`INF_SOURCE`）**：支持直流 / 正弦 / 方波及任意高压设定，免除过载功率熔断上限限制。\n  - **无限电阻（`INF_RESISTOR`）**：默认理想无穷大断路（R = ∞, I = 0），也可切换超高兆欧/太欧级阻抗且永不过载。\n  - **8 槽 / 16 槽自定义真值/逻辑芯片（`CUSTOM_TRUTH_8` / `CUSTOM_TRUTH_16`）**：通过 [TruthChipEditorModal.tsx](file:///e:/codelearn/Circuit/src/components/TruthChipEditorModal.tsx) 为每个引脚自由指定 `IN` / `OUT` / `NC` 角色与丝印名称，支持**真值表点击映射**与**布尔逻辑表达式**双模式编程（支持预设如半加器、2:1 MUX、3-8 译码器），保存后 3D/2D 引脚与丝印自动重构并直接参与 MNA 及顶部/底部真值表卡诺图分析（[digitalLogicAnalysis.ts](file:///e:/codelearn/Circuit/src/engine/digitalLogicAnalysis.ts)）。\n- **全部 45 个模块专属 3D 思索图鉴（Ponder）**：[ponderExpandedData.ts](file:///e:/codelearn/Circuit/src/ponder/ponderExpandedData.ts)、[ponderScenesExpanded.ts](file:///e:/codelearn/Circuit/src/ponder/ponderScenesExpanded.ts) 已全部接入 [ponderData.ts](file:///e:/codelearn/Circuit/src/ponder/ponderData.ts) 与 [ponderSceneRegistry.ts](file:///e:/codelearn/Circuit/src/ponder/ponderSceneRegistry.ts)。\n\n#### 4. 电路打包为集成电路模块（Custom IC）并永久保存云端账号\n- **层次化展开仿真引擎**：[customIcEngine.ts](file:///e:/codelearn/Circuit/src/engine/customIcEngine.ts) 提供 `packageCircuitAsIc` 与 `expandCircuitHierarchy`（最多支持 4 层嵌套封装）。可用 `IC_PORT_IN` / `IC_PORT_OUT`（或工作台中的 `LOGIC_IN` / `LOGIC_OUT`）自动提取芯片外部引脚并在仿真阶段与顶层电路无损扁平展开联合求解。\n- **云端账户持久化**：[db.ts](file:///e:/codelearn/Circuit/server/db.ts) 新增 `custom_ics` 数据表，[app.ts](file:///e:/codelearn/Circuit/server/app.ts) 新增 `GET/POST/PUT/DELETE /api/custom-ics` 鉴权接口；前端 [useCustomIcStore.ts](file:///e:/codelearn/Circuit/src/store/useCustomIcStore.ts)、[PackageIcModal.tsx](file:///e:/codelearn/Circuit/src/components/PackageIcModal.tsx) 与 [ComponentPalette.tsx](file:///e:/codelearn/Circuit/src/components/ComponentPalette.tsx) 实现打包、保存至登录账号云端库以及跨刷新/跨设备在元件库「云端 / 自封装集成芯片」栏一键拖出复用。\n\n---\n\n### 三、自动化测试与真机验证结果\n\n1. **单元测试与 API 集成测试 (`npm test`)**：\n   - `tests/engine.test.ts`：15/15 通过（覆盖分压/KCL/二极管/RC 暂态/运放/卡诺图综合，以及 `INF_SOURCE`、`INF_RESISTOR`、`ZENER_DIODE`、`NMOS`、`TRANSFORMER`、`LAMP`、`FUSE` 熔断、`MUX_2_1`、`COUNTER_4BIT`、`CUSTOM_TRUTH_8` 表达式模式、层次化 `CUSTOM_IC` MNA 与真值表、`.elab.json` 导入导出与 `useUIStore` 默认收起状态）。\n   - `tests/ponder.test.ts`：5/5 通过（验证全部 45 个 `ComponentType` 均注册了完整思索剧情、45 个互异的 3D 展示构建函数、实时遥测与释放逻辑）。\n   - `tests/api.test.ts`：4/4 通过（验证项目、论坛接口以及 `/api/custom-ics` 的 401 未登录拦截、增删改查及 403 跨用户隔离保护）。\n   - 合计：**3 个测试文件、24 项测试全部通过**。\n2. **TypeScript 类型检查与生产构建 (`npm run build`)**：\n   - `tsc --noEmit && vite build` 退出码 `0`（1625 个模块转换并完成构建）。\n3. **浏览器全栈端到端验证 (`http://localhost:5173`)**：\n   - 宿主机 `BROWSER_HOST_FACTS` 验证零报错，确认了：默认进入时 3D 画布无侧栏/底栏遮挡且仅显示右下角 `floating-panel-orb`；悬浮小球菜单与顶部「面板菜单」可正常开关浮窗并来回切换经典分栏与悬浮模式；从元件库添加 `CUSTOM_TRUTH_8` 与 `INF_SOURCE` 并使用真值芯片编辑器切换真值输出、打开 3D 思索剧场；点击导出触发 `.elab.json` 文件下载（本地文件浏览器上传弹窗按安全规则跳过，解析函数已由单元测试覆盖）；使用账号 `linxiao` 登录后打包全加器为 `E2E云端全加器芯片` 保存到云端、放入工作台并在刷新页面后确认云端芯片列表依然持久存在（已查看核验截图 `final_step_31.png`）。\n\n如果需要现在把第三版改动也提交到 Git，告诉我即可执行。",
+      "chunk": 1
+    },
+    {
+      "step": 613,
+      "role": "user",
+      "text": "修复并且改进下面的问题然后再提交0.3:把“思索”接到用户当前正在研究的电路上。\n\n我将工作台电阻改为 1kΩ 后打开思索，它仍以独立的 220Ω、5V 示例开始。这个独立演示本身有用，但学习过程存在跳转。\n\n建议保留“标准原理演示”，再增加“解释当前元件”：带入当前阻值、电压、电流和功耗，让学生看到自己的操作为什么产生这个结果。\n\n另一个具体细节：异或门输入改成 A=1、B=1 后，输出正确变成 0，但章节说明仍写“当前 A=1、B=0”。参数、动画、讲解文案应同步变化。 齿轮等机械表达也应明确标为原理类比。纯 2D 模式仍会停止仿真。\nRC 实验切到纯 2D 后，时间停在 0.3s，波形不再更新，按钮仍显示“运行中”；切回分屏恢复。仿真推进仍依赖 [3D 渲染循环 (line 643)](<PROJECT>/src/sim3d/Workbench3DEngine.ts:643)，应移到独立运行层。\n\n错误公式会被当作有效逻辑烧录。\n我输入不完整的 A &，界面显示“示例试算 → 0”，允许烧录，重新打开后错误公式仍被保留。这样会让学生把输入错误误认为逻辑结果。应报告缺失操作数、未知变量、括号不匹配等错误，并阻止应用。[表达式解析位置 (line 145)](<PROJECT>/src/engine/customIcEngine.ts:145)\n\n五脚封装芯片没有显示引脚名称。\n实际连接全加器时，图上看不到 A/B/C、S/Cout，需要记住端口顺序。代码目前只在引脚数不少于六个时绘制名称。应让自定义芯片始终显示引脚名，并提供完整名称的悬停提示。[绘制位置 (line 706)](<PROJECT>/src/components/Schematic2DSidebar.tsx:706)\n\n悬浮面板同时展开时仍有遮挡。\n在本次 1280×720 视口下，分析面板会盖住二维图纸的一部分；重新打开图纸也没有自动适配全部电路。经典布局中，选择元件与导线时属性栏高度变化，还会让图纸上下移动。建议优先补自动适配、可调整的面板布局和稳定的属性区域高度。",
+      "chunk": 1
+    },
+    {
+      "step": 916,
+      "role": "assistant",
+      "text": "正在运行构建 `tsc --noEmit && vite build`（`npm test` 3 个测试套件共 27 项已全部通过），等待构建完成后继续进行 1280×720 浏览器端到端验证与 0.3 提交。",
+      "chunk": 1
+    },
+    {
+      "step": 937,
+      "role": "assistant",
+      "text": "已启动并确认前后端服务就绪（`http://127.0.0.1:5173` 与 `http://127.0.0.1:3001`），正在运行 `1280×720` 浏览器端到端验证。",
+      "chunk": 1
+    },
+    {
+      "step": 947,
+      "role": "assistant",
+      "text": "浏览器端到端检查中发现 `TruthChipEditorModal.tsx` 存在一处 React Hook 顺序问题（条件早返回放在了两个 `useMemo` 之前），已立即修复并热更新，正在复测场景 D（自定义真值芯片表达式严格校验与防误烧录拦截）。",
+      "chunk": 1
+    },
+    {
+      "step": 953,
+      "role": "assistant",
+      "text": "场景 D 复测与全量 1280×720 浏览器端到端验证已全部通过；`npm test` 3 个测试套件共 27 项全部通过，正在等待最终生产构建 `vite build` 完成以便清理并提交 v0.3。",
+      "chunk": 1
+    },
+    {
+      "step": 962,
+      "role": "assistant",
+      "text": "已完成全部 5 项问题修复与改进，并通过单元测试、生产构建及 `1280×720` 浏览器端到端验证后，已提交 **v0.3** 到 Git 仓库（`main` 分支，提交号 `e863c68`）。\n\n---\n\n### 修复与改进详情\n\n#### 1. “思索 (Ponder)”接入当前实验电路、实时同步讲解与 `[原理类比]` 标识\n- **双模式联动**：在 [usePonderStore.ts](file:///e:/codelearn/Circuit/src/store/usePonderStore.ts)、[PonderModal.tsx](file:///e:/codelearn/Circuit/src/components/PonderModal.tsx) 和 [ponderInstanceBridge.ts](file:///e:/codelearn/Circuit/src/ponder/ponderInstanceBridge.ts) 中新增 `activeComponentId` 与 `ponderMode`（`'instance' | 'standard'`）。从工作台选中元件、悬停提示（[PonderHoverOverlay.tsx](file:///e:/codelearn/Circuit/src/components/PonderHoverOverlay.tsx)）、属性栏（[PropertyInspector.tsx](file:///e:/codelearn/Circuit/src/components/PropertyInspector.tsx)）或快捷胶囊进入思索时，默认进入 **「解释当前元件」** 模式，代入该元件当前设定参数（如 `1.00 kΩ`）、实测压降、电流、功耗、负载率与引脚电位，并可一键切换 **「标准原理演示」**。\n- **参数-动画-讲解文案严格同步**：在 [ponderTypes.ts](file:///e:/codelearn/Circuit/src/ponder/ponderTypes.ts) 新增 `renderNarration`，在 [ponderAnalogData.ts](file:///e:/codelearn/Circuit/src/ponder/ponderAnalogData.ts)、[ponderDigitalData.ts](file:///e:/codelearn/Circuit/src/ponder/ponderDigitalData.ts)、[ponderExpandedData.ts](file:///e:/codelearn/Circuit/src/ponder/ponderExpandedData.ts) 及 [ponderScenesAnalog.ts](file:///e:/codelearn/Circuit/src/ponder/ponderScenesAnalog.ts) 中动态计算章节讲解（通过 `resolveStepNarration` 渲染，如异或门拨为 `A=1、B=1` 时同步更新为 `Y=0` 的抵消说明，不再停留在旧文案 `当前 A=1, B=0`）。\n- **机械/水力类比显式标注**：通过 [ponderTypes.ts](file:///e:/codelearn/Circuit/src/ponder/ponderTypes.ts)、[Ponder3DStage.ts](file:///e:/codelearn/Circuit/src/ponder/Ponder3DStage.ts) 与 [PonderModal.tsx](file:///e:/codelearn/Circuit/src/components/PonderModal.tsx) 渲染 `analogyNote` 说明卡片（`原理类比` 徽章）与 3D 标注 `类比` 标签（覆盖齿轮、吊桥、跷跷板、快门、比例水闸、溢流阀、道岔、磁飞轮等比喻展示）。\n\n#### 2. 独立仿真循环：纯 2D 模式持续推进时间与波形\n- 新增独立于 3D WebGL 生命周期的仿真驱动 Hook [useSimulationRunner.ts](file:///e:/codelearn/Circuit/src/hooks/useSimulationRunner.ts) 并挂载到顶层 [App.tsx](file:///e:/codelearn/Circuit/src/App.tsx#L67)。\n- 从 [Workbench3DEngine.ts](file:///e:/codelearn/Circuit/src/sim3d/Workbench3DEngine.ts) 和 [Workbench3DView.tsx](file:///e:/codelearn/Circuit/src/components/Workbench3DView.tsx) 的渲染循环移除 `onStepSim`，确保切换到 `纯2D`（`2d-only`）卸载 3D 画布后，RC 暂态时间与示波器数据仍连续步进；并在 [HeaderBar.tsx](file:///e:/codelearn/Circuit/src/components/HeaderBar.tsx#L156-L161) 常驻展示仿真时间 `sim-time-readout`。\n\n#### 3. 严格布尔公式语法校验，阻止错误公式烧录\n- 在 [customIcEngine.ts](file:///e:/codelearn/Circuit/src/engine/customIcEngine.ts#L145-L360) 实现 `tokenizeBooleanExpr`、`parseValidatedBooleanAst` 与 `validateBooleanExpression`，对不完整二元操作数（如 `A &`）、未知变量、空括号/不匹配括号、缺失二元运算符（如 `A B`）及非法字符给出中文错误提示；同时在 [TruthChipEditorModal.tsx](file:///e:/codelearn/Circuit/src/components/TruthChipEditorModal.tsx) 中修复了 Hook 调用顺序使其始终在早返回前执行，并在公式无效时隐藏误导性的 `\"示例试算 → 0\"`，展示逐行红字报错与顶部拦截提示并禁用“烧录并应用芯片配置”按钮。\n- 顺带将 `getTruthChipPins`（[customIcEngine.ts](file:///e:/codelearn/Circuit/src/engine/customIcEngine.ts#L472-L483)）改为过滤 `NC` 空脚且 `IN` 靠左、`OUT` 靠右排列。\n\n#### 4. 修复多脚封装芯片 2D 引脚名显示与悬停提示\n- 在 [Schematic2DSidebar.tsx](file:///e:/codelearn/Circuit/src/components/Schematic2DSidebar.tsx#L673-L738) 移除 `pins.length >= 6` 限制并修正 SVG 绘制层级（先绘制封装 `<rect>` 再绘制引脚 `<text>`，此前 `<rect>` 在后导致文字被底色覆盖），使 5 脚全加器 `CUSTOM_IC` 等多脚芯片稳定显示 `A / B / C(Cin) / S / Cout`；针对多引脚芯片动态上移元件标题并外扩选中框及遥测文字纵坐标。\n- 在 2D 引脚上新增 `<title>` 与悬浮提示条 `schematic-pin-tooltip`（[Schematic2DSidebar.tsx](file:///e:/codelearn/Circuit/src/components/Schematic2DSidebar.tsx#L1395-L1430)），同步将 [Workbench3DView.tsx](file:///e:/codelearn/Circuit/src/components/Workbench3DView.tsx#L141) 3D 悬停引脚查找改用 `getComponentPins(c)`。\n\n#### 5. `1280×720` 无遮挡可调面板布局、2D 自动适配与经典分栏稳定高度\n- **2D 自动适配与画布高度稳定**：在 [useCircuitStore.ts](file:///e:/codelearn/Circuit/src/store/useCircuitStore.ts) 增加 `circuitLoadVersion`（在 `loadCircuit`、`clearWorkbench`、`autoLayout2D` 时递增），[Schematic2DSidebar.tsx](file:///e:/codelearn/Circuit/src/components/Schematic2DSidebar.tsx#L960-L1024) 结合 `ResizeObserver` 与 `circuitLoadVersion` 在挂载、窗口变化及载入电路后自动 `fitToView`，并将 `selected` 快捷栏改为画布内悬浮层以免挤占 `<svg>` 高度。\n- **分区无遮挡与拖拽调尺寸**：在 [useUIStore.ts](file:///e:/codelearn/Circuit/src/store/useUIStore.ts) 增加 `paletteWidth`、`rightColumnWidth`、`analysisHeight`、`splitInspectorHeight` 尺寸状态，[BottomAnalysisDock.tsx](file:///e:/codelearn/Circuit/src/components/BottomAnalysisDock.tsx#L16-L130) 支持 `embedded` / `heightPx`，[PropertyInspector.tsx](file:///e:/codelearn/Circuit/src/components/PropertyInspector.tsx#L25-L50) 补齐非紧凑态 `h-full`。在 [App.tsx](file:///e:/codelearn/Circuit/src/App.tsx#L115-L345) 中：\n  - 悬浮模式下四个面板及悬浮球各自预留间距与边缘拖拽条，右侧属性栏与 2D 原理图采用纵向堆叠分栏并在底部为分析工作区留出边界；\n  - 经典分屏模式下用固定高度插槽 `split-inspector-slot` + 拖拽分隔条包裹 `PropertyInspector`，切换选中元件 / 导线 / 空白处时 2D 图纸纵向位置不再跳动。\n\n---\n\n### 验证结果\n\n1. **单元测试与构建**（全部于最终代码修改完成后执行）：\n   - `npm test`：3 个测试文件共 **27 项测试全部通过**（[engine.test.ts](file:///e:/codelearn/Circuit/tests/engine.test.ts) 17 项、[ponder.test.ts](file:///e:/codelearn/Circuit/tests/ponder.test.ts) 6 项、[api.test.ts](file:///e:/codelearn/Circuit/tests/api.test.ts) 4 项），耗时 2.98s。\n   - `npm run build`（`tsc --noEmit && vite build`）：类型检查与生产包构建全部通过（`dist/assets/index-DzTaYZHv.js`，耗时 5.70s）。\n2. **`1280×720` 浏览器端到端实测**（Chromium 视口 `1280×720` 访问 `http://127.0.0.1:5173`，并核验最终截图 `final_step_445.png` 与 `BROWSER_HOST_FACTS`）：\n   - **悬浮面板全展开无遮挡 & 自动适配**：同时打开元件库（`12..260`）、属性（`858..1268, y:60..255`）、2D 图纸（`858..1268, y:265..481`）、分析面板（`272..1192, y:493..708`），所有面板两两重叠面积为 `0 px²`，2D 电路节点全部落在可视 SVG 区域内。\n   - **思索电路联动与动态讲解**：将 `R1` 改为 `1000` 后进入思索默认激活“解释当前元件 · R1”并显示 `1.00 kΩ`，可切换回“标准原理演示”(`220 Ω`)；切换至 XOR 步骤 2 并将输入拨为 `A=1, B=1` 后，讲解更新为 `Y=0` 对应说明，且显示 `[原理类比]` 徽章与说明。\n   - **纯 2D 连续仿真与经典分屏稳定性**：载入一阶 RC 实验切到 `纯2D`（3D `<canvas>` 数为 `0`），仿真时间持续推进（测得 `259.4s -> 261.0s`）；回到经典分屏切换选中空白/元件/导线，`split-schematic-container` 的 `top` 均为 `57.000px`（位移 `0px`）。\n   - **错误公式拦截**：在 `CUSTOM_TRUTH_8` 表达式模式输入 `A &` 报 `\"运算符 “&” 后缺少右操作数\"`，禁用烧录按钮且未显示 `\"示例试算 → 0\"`；取消重开后原公式未被覆盖，修正为 `A ^ B` 后可正常应用。\n   - **5 脚封装芯片引脚名与悬停提示**：打包全加器实验生成 5 脚 `U1` 芯片后，2D SVG 渲染出 `A / B / C / S / Cout` 全部 5 个引脚名，悬停引脚显示 `schematic-pin-tooltip`。\n\n---\n\n### Git 提交记录\n\n- 分支：`main`\n- 提交：`e863c68` — `feat: ElectroLab 3D v0.3 电路联动思索、独立仿真层、公式校验与自适应无遮挡工作台`（40 个文件，工作区已清理临时运行时目录并确认 `nothing to commit, working tree clean`）。",
+      "chunk": 1
+    },
+    {
+      "step": 963,
+      "role": "user",
+      "text": "联动解释还有两处一致性问题：RC 放电时，推导文字把正电压除以正电阻写成了负电流；“解释当前元件”中的输入按钮可以改成 1，但实测读数仍为 0。",
+      "chunk": 2
+    },
+    {
+      "step": 1038,
+      "role": "assistant",
+      "text": "I have launched the development servers and started the `browser` subagent to verify both Ponder consistency fixes in a `1280×720` Chromium viewport. Waiting for the browser verification report.",
+      "chunk": 2
+    },
+    {
+      "step": 1064,
+      "role": "assistant",
+      "text": "正在完成全量测试与生产构建检查，完成后即提交代码。",
+      "chunk": 2
+    },
+    {
+      "step": 1068,
+      "role": "assistant",
+      "text": "已完成两处“思索 (Ponder)”联动一致性问题的修复，并通过单测、生产构建与 Chromium (`1280×720`) 实机验证后提交至 `main`（提交 `e2b33e3`）。\n\n### 修复详情\n\n1. **RC 放电阶段带符号公式与幅值推导一致性** — [ponderInstanceBridge.ts](file:///e:/codelearn/Circuit/src/ponder/ponderInstanceBridge.ts)\n   - 新增 `formatOhmFormulaDerivation` 统一处理电阻/超高阻器在正反向电压下的表达式生成：存在负压降/负电流时，先列出**关联参考方向带符号欧姆定律**（如 `I = ΔV / R = -0.73 V / 1.00 kΩ = -733.7 µA`），再单独给出**幅值公式**（`|I| = 0.73 V / 1.00 kΩ = 733.7 µA`），不再将正数除以正数写成负电流。\n   - 在 `deriveInstancePonderContext` 中同步区分电容 `放电阶段`（`dVc/dt < 0`、`I = C·dVc/dt = -... µA`）与 `充电阶段`，以及电源反灌流 / 向外供电表述。\n\n2. **“解释当前元件”交互拨动与读数/推导同步** — [ponderInstanceBridge.ts](file:///e:/codelearn/Circuit/src/ponder/ponderInstanceBridge.ts)、[PonderModal.tsx](file:///e:/codelearn/Circuit/src/components/PonderModal.tsx)、[ponderScenesDigital.ts](file:///e:/codelearn/Circuit/src/ponder/ponderScenesDigital.ts)\n   - 在 `PonderModal` 中分离工作台基础状态与交互覆盖参数 `activeParams` 并传入 `deriveInstancePonderContext`：当在“解释当前元件”模式下拨动输入开关或滑动条（如把 `U3_AND` 的 `B` 设为 `1`）时，左上角指标胶囊、右侧推演卡片徽章（切换为 `试算模式` 并保留原实测对照 `【交互试算 · 工作台原实测：...】`）、引脚读数（`试算引脚 — ...`）以及章节讲解文案会同步切换并重新计算输出。\n   - 增加 **`还原实测`** 按钮用于放弃临时拨动并恢复 `工作台同步` 状态；对具有元件自身可写属性的模块（如 `LOGIC_IN`、`RESISTOR`、`DC_SOURCE`、`SWITCH_SPST` 等），在试算时提供 **`应用到工作台`** 按钮将其直接写回工作台电路。\n   - 同步修复 `ponderScenesDigital.ts` 中 `buildDFlipFlopDiorama` 的初始 `_q` 状态同步问题，并补充两项单测于 [ponder.test.ts](file:///e:/codelearn/Circuit/tests/ponder.test.ts)。\n\n### 验证结果\n\n- **单元测试**（`npm test` → `vitest run`）：`3` 个测试文件全部通过（[tests/engine.test.ts](file:///e:/codelearn/Circuit/tests/engine.test.ts) 17 项、[tests/ponder.test.ts](file:///e:/codelearn/Circuit/tests/ponder.test.ts) 8 项、[tests/api.test.ts](file:///e:/codelearn/Circuit/tests/api.test.ts) 4 项，共 `29 passed`）。\n- **类型检查与生产构建**（`npm run build` → `tsc --noEmit && vite build`）：退出码 `0`，产物构建成功（`4.62s`）。\n- **浏览器端到端验证**（`1280×720` Chromium 访问 `http://127.0.0.1:5173/`）：\n  - **一阶 RC 暂态实验**：放电期 `R1` 思索卡片显示 `I = ΔV / R = -0.73 V / 1.00 kΩ = -733.7 µA（电流大小 |I| = 0.73 V / 1.00 kΩ = 733.7 µA）`；`C1` 显示 `Vc = 0.73 V` 与 `放电阶段，dVc/dt < 0`、`I = C·dVc/dt = -733.7 µA（幅值 733.7 µA）`。\n  - **一位全加器实验**：打开 `U3_AND` 思索并将 `B` 拨为 `1` 后，界面同步切换为 `试算模式`、`试算输入 A, B:A=1, B=1`、`试算输出 Y:Y=1 (5.0V)` 及 `试算引脚 — A: 5.00V(1) | B: 5.00V(1) | Y: 5.00V(1)`；点击 `还原实测` 恢复 `工作台同步`（`A=1, B=0`、`Y=0`）；打开 `LOGIC_IN` `B` 拨为 `1` 后点击 `应用到工作台`，状态与工作台同步为 `工作台同步` / `实测输出逻辑态:1 (HIGH +5.0V)`。\n- **Git 提交**：`e2b33e3 fix: 修正思索RC放电符号推导与实例模式试算读数同步`（分支 `main`，工作区已清理无残留变更，开发服务器后台任务已停止）。",
+      "chunk": 2
+    },
+    {
+      "step": 1069,
+      "role": "user",
+      "text": "0.4版本新增教学模式，从零基础开始从零讲解各种电路原理，并且配备对应逐步扩展的电路演示和模块原理演示，先覆盖本科电工学上册内容，必要时重构底座以适配教学模式",
+      "chunk": 2
+    },
+    {
+      "step": 1313,
+      "role": "assistant",
+      "text": "正在运行全量单元测试（包含 36 个教学阶段与交流/三相物理断言）及 TypeScript / Vite 构建检查，稍候同步结果。",
+      "chunk": 2
+    },
+    {
+      "step": 1322,
+      "role": "assistant",
+      "text": "已修复 `pinVoltages` 字段名与 `Math.sqrt(3)` 类型报错，正在重新运行 `npm test` 与 `tsc --noEmit && vite build` 全量验证。",
+      "chunk": 2
+    },
+    {
+      "step": 1328,
+      "role": "assistant",
+      "text": "已启动前端与后端开发服务器，并委派浏览器代理在 `1280×720` 分辨率下对教学模式主流程、渐进电路演示、3D 思索联动、三相断零故障抢修与交流有效值表进行端到端真实验证。",
+      "chunk": 2
+    },
+    {
+      "step": 1344,
+      "role": "assistant",
+      "text": "修复了 `1280px` 视口顶部导航栏中“交流论坛”标签的挤压裁剪问题（将次级工具按钮文本展开断点调至 `2xl`），正在重新运行全量测试与生产构建，随后复验浏览器界面布局。",
+      "chunk": 2
+    },
+    {
+      "step": 1350,
+      "role": "assistant",
+      "text": "正在复验 `1280×720` 下顶栏无重叠与教学模式第11课（三相电路断零故障修复）全视图截图，完成后即清理临时进程。",
+      "chunk": 2
+    },
+    {
+      "step": 1364,
+      "role": "assistant",
+      "text": "已完成 **ElectroLab 3D v0.4 教学模式（本科《电工学》上册零基础交互课程体系与仿真底座升级）** 的开发与验证，所有改动保留在工作区供审阅。\n\n### 1. 仿真与工作台底座重构升级\n- **交流相角、自适应微步长与整周期有效值解算**（[types.ts](file:///e:/codelearn/Circuit/shared/types.ts)、[componentCatalog.ts](file:///e:/codelearn/Circuit/src/engine/componentCatalog.ts)、[mnaSolver.ts](file:///e:/codelearn/Circuit/src/engine/mnaSolver.ts)）：\n  - 为 `AC_SOURCE` 增加初相角 `phase`（支持 `0° / -120° / +120°` 三相交流供电），为 `VOLTMETER` / `AMMETER` 增加 `mode: 'dc' | 'rms'`（直流瞬时挡 / 交流有效值 `AC~` 挡）。\n  - 新增 `advanceCircuitSimulation`，按最高激励频率自适应细分步长（单周期可达 240 子步），滑动统计整周期加权有效值 `vRms`、`iRms`、平均有功功率 `avgPower`、视在功率 `apparentPower` 与功率因数 `powerFactor`，并同步白炽灯热惯性稳态功率过载判定。\n- **教学慢放倍速、预热稳态与高亮引导**（[useCircuitStore.ts](file:///e:/codelearn/Circuit/src/store/useCircuitStore.ts)、[Workbench3DEngine.ts](file:///e:/codelearn/Circuit/src/sim3d/Workbench3DEngine.ts)、[meshes.ts](file:///e:/codelearn/Circuit/src/sim3d/meshes.ts)、[Workbench3DView.tsx](file:///e:/codelearn/Circuit/src/components/Workbench3DView.tsx)、[Schematic2DSidebar.tsx](file:///e:/codelearn/Circuit/src/components/Schematic2DSidebar.tsx)、[PropertyInspector.tsx](file:///e:/codelearn/Circuit/src/components/PropertyInspector.tsx)、[BottomAnalysisDock.tsx](file:///e:/codelearn/Circuit/src/components/BottomAnalysisDock.tsx)）：\n  - 支持 `timeScale`（`1× / 0.2× / 0.05×` 交流慢放）、单步推进 `stepOnce`、`loadCircuit` 稳态预热 `prewarmSeconds`，以及切换电路时 3D 视角自动对焦 `fitCameraToCircuit()`。\n  - 3D 场景与 2D 原理图同步渲染教学重点脉冲高亮环（`highlightedIds`）与 `+新增` 器件徽标（`newlyAddedIds`），底部解析栏新增 **“交流有效值与功率因数”** 实时数据表。\n- **3D 思索（Ponder）深链直达与交流实测桥接**（[usePonderStore.ts](file:///e:/codelearn/Circuit/src/store/usePonderStore.ts)、[PonderModal.tsx](file:///e:/codelearn/Circuit/src/components/PonderModal.tsx)、[ponderInstanceBridge.ts](file:///e:/codelearn/Circuit/src/ponder/ponderInstanceBridge.ts)）：\n  - `openPonder(type, componentId, stepIndex)` 支持从课程卡片直接跳转到对应器件的指定 3D 原理演示步骤，并在实例联动模式中展示交流相角、有效值 `V~ / I~` 与功率因数。\n\n### 2. 零基础渐进式课程体系（7 章 · 12 课 · 36 个递进实验阶段）\n课程定义位于 [tutorialTypes.ts](file:///e:/codelearn/Circuit/src/tutorial/tutorialTypes.ts)、[tutorialHelpers.ts](file:///e:/codelearn/Circuit/src/tutorial/tutorialHelpers.ts)、[lessonsCh0ToCh2.ts](file:///e:/codelearn/Circuit/src/tutorial/lessonsCh0ToCh2.ts)、[lessonsCh3ToCh6.ts](file:///e:/codelearn/Circuit/src/tutorial/lessonsCh3ToCh6.ts) 与 [curriculumIndex.ts](file:///e:/codelearn/Circuit/src/tutorial/curriculumIndex.ts)：\n- **第 0 章 零基础认识电与仪表**：电源与参考地电位差 → 开关与灯泡闭合回路 → 电压表并联/电流表串联双表测功 → 短路过流与熔断器保护。\n- **第 1 章 电路基本定律**：欧姆定律定量测量、电位器连续分压、LED 限流电阻与焦耳功耗红线、KCL 节点分流守恒、KVL 串联回路压降守恒与双电源节点电位方程。\n- **第 2 章 电路分析与等效定理**：惠斯通电桥调平、电压源/电流源等效互换与内耗边界、SPDT 安全置零叠加定理实验、戴维南等效与最大功率传输阻抗匹配。\n- **第 3 章 动态电路一阶暂态**：RC 零状态充电/零输入放电与全响应三要素法、RL 通电励磁、感性负载断闸反电动势击穿危害与并联续流二极管钳位保护。\n- **第 4 章 正弦交流、谐振与功率因数**：`220V~` 有效值测量、感抗与容抗频率响应对比、`50Hz` RLC 串联谐振与品质因数电容过电压、感性电机并联电容无功补偿降线损。\n- **第 5 章 三相交流供电与安全**：对称 `Y0` 三相四线制（`220V~ / 381V~` 与零中线电流）、不对称负载“断零”轻载相飙压过载事故与合闸抢修、三角形 `Δ` 接法 $\\sqrt{3}$ 倍线电流关系。\n- **第 6 章 变压器与直流稳压电源**：变压器 `20:1` 隔离降压 → 二极管半波整流与 `470µF` 电容滤波平波 → `5.1V` 齐纳稳压管反向钳位构建完整 `220V~ → 5V` 线性直流稳压电源。\n\n### 3. 教学模式交互工作区与无损切换\n- [useTutorialStore.ts](file:///e:/codelearn/Circuit/src/store/useTutorialStore.ts)、[TutorialCoursePanel.tsx](file:///e:/codelearn/Circuit/src/components/TutorialCoursePanel.tsx)、[TutorialWorkspace.tsx](file:///e:/codelearn/Circuit/src/components/TutorialWorkspace.tsx)、[HeaderBar.tsx](file:///e:/codelearn/Circuit/src/components/HeaderBar.tsx)、[App.tsx](file:///e:/codelearn/Circuit/src/App.tsx)：\n  - 集成章节目录抽屉、阶段进度、实时公式代入验算、实验快捷交互控件、3D 模块思索跳转、实时判题闯关卡片与“一键自动演示”。\n  - 进入教学模式时自动快照备份自由仿真台电路；点击“返回自由仿真台”无损恢复原工程，点击“带电路去自由台”可将当前教学电路直接带入自由工作台继续改装。\n\n### 4. 验证结果\n- **自动化测试**（[tutorial.test.ts](file:///e:/codelearn/Circuit/tests/tutorial.test.ts) 等 4 个测试文件）：`npm test` **34 / 34 全部通过**（覆盖全部 12 课 36 个阶段的拓扑引脚合法性、三相不对称断零过压、50Hz RLC 谐振与功率因数补偿物理精度、36 个闯关任务自动演示通关以及自由台电路无损恢复）。\n- **类型与生产构建**：`npm run build`（`tsc --noEmit && vite build`）零报错通过。\n- **1280×720 浏览器端到端实测**（实测截图：[final_step_63.png](file:///<LOCAL_USER>/.gemini/antigravity/brain/57ff23a6-5208-4eb1-94d9-2a5a6f3f7e9a/browser_evidence/a5f42558-8b3c-4cf1-be1b-f7d99e97a4fe/final_step_63.png)）：验证顶栏与面板零重叠挤压、单 WebGL 实例渲染、渐进式阶段扩展、思索 3D 弹窗联动、第 11 课三相断零故障从 `~293V~` 过压抢修恢复 `220V~` 三相平衡，全程 `0` 控制台/页面错误。",
+      "chunk": 2
+    },
+    {
+      "step": 1365,
+      "role": "user",
+      "text": "先修复这几个问题",
+      "chunk": 2
+    },
+    {
+      "step": 1366,
+      "role": "user",
+      "text": "暂停切换开关，会产生错误的电容电压，并误记通关。\n我在 RC 放电课中复现了：\n- 电容已充至约 10V，暂停仿真。\n- 切到接地放电，电压立即显示 0V，任务被判为“已通关”。\n- 推进一个微步，电压又变成 9.61V，任务显示“待完成”，累计完成数却已增加。\n修改属性时走了 dt=0 求解，而该分支将电容按直流稳态开路处理。应区分“求直流工作点”和“保持储能状态的瞬时重算”，让切换后的显示与通关判断使用正确暂态结果。[属性更新 (line 556)](<PROJECT>/src/store/useCircuitStore.ts:556) · [电容求解分支 (line 897)](<PROJECT>/src/engine/mnaSolver.ts:897)\n\n电流曲线实际画成了电流表自身的压降。\nRC 放电时，数值表已经显示约 −9.6mA，示波器的 PA_C 电流 通道却显示 −0.00V，曲线接近水平。当前 DC 电流表仍采集 voltageDrop，图例和纵轴也统一写 V。\n建议让示波通道明确包含“元件、测量量、单位”，正确区分瞬时电压、瞬时电流和有效值，并处理不同量纲的刻度。[采样位置 (line 138)](<PROJECT>/src/store/useCircuitStore.ts:138) · [纵轴标注 (line 106)](<PROJECT>/src/components/BottomAnalysisDock.tsx:106)\n\n正常无功补偿实验持续出现电感、电容过载告警。\n补偿效果已达标时，界面仍反复显示电感、电容“约 100—200W／额定 5W”过载。这来自将瞬时 |u·i| 用于功耗判断，混淆了储能交换与损耗。\n应在元件模型中区分储能功率、实际损耗及耐压／电流限制，让教学中的正常运行状态与告警一致。[相关计算 (line 1502)](<PROJECT>/src/engine/mnaSolver.ts:1502)\n\nRC 公式旁的时间没有从开关动作开始计时。\n我开始充电时，界面显示 t=12.18s，Vc=0.61V。这里的时间是进入实验以来的总时间，但指数响应公式中的时间应从这次切换开始计算。建议记录切换时刻及初始状态，显示“本次充电／放电已进行多久”。[当前时间显示 (line 81)](<PROJECT>/src/tutorial/lessonsCh3ToCh6.ts:81)",
+      "chunk": 2
+    },
+    {
+      "step": 1572,
+      "role": "assistant",
+      "text": "全部 4 个测试文件（38 项测试）已通过，正在等待 `npm run build` 完成以继续浏览器端到端验证。",
+      "chunk": 2
+    },
+    {
+      "step": 1578,
+      "role": "assistant",
+      "text": "已启动开发服务器并指派浏览器子代理在 `1280×720` 视口下执行三项核心场景的实时端到端验证，等待结果返回。",
+      "chunk": 2
+    },
+    {
+      "step": 1591,
+      "role": "assistant",
+      "text": "已修复全部 4 项问题并完成单元测试、生产构建与 `1280×720` 浏览器端到端验证（工作区改动暂留待查，未执行 `git commit`）。\n\n### 修复说明\n\n1. **暂停状态下切换开关保持电容电压与电感电流连续，杜绝 `0V` 误判通关**\n   - 在 [mnaSolver.ts](file:///e:/codelearn/Circuit/src/engine/mnaSolver.ts) 导出 `ZeroDtSolveMode`（`'dcOperatingPoint' | 'holdState'`）与 `SolveStepOptions`，默认保留 `'dcOperatingPoint'` 以兼容既有直流工作点求解；当 `zeroDtMode === 'holdState'` 时，`CAPACITOR` 以 `CAP_HOLD_G` Norton 伴随模型锁定 $u_C(0_+)=u_C(0_-)$ 并还原瞬时电流，`INDUCTOR` 以 `IND_HOLD_G` 保持 $i_L(0_+)=i_L(0_-)$。\n   - 在 [useCircuitStore.ts](file:///e:/codelearn/Circuit/src/store/useCircuitStore.ts) 的 `updateComponentProp`、`recomputeInstant`、`resetSimulationTime`、`undo`、`addComponent`、`spawnCustomIc`、`addWire`、`removeEntity` 与无预热 `loadCircuit` 中传入 `{ zeroDtMode: 'holdState' }`。在 `l7-s2` 暂停切换 `K1` 接地时，$V_C$ 维持在 `~10V`、$I_C$ 立即跃变为 `-10mA`，不再瞬跳 `0V` 或误记通关。\n\n2. **示波器电流通道正确采样电流物理量与量纲，支持电压/电流独立双纵轴**\n   - 新增 [scopeChannelMeta.ts](file:///e:/codelearn/Circuit/src/engine/scopeChannelMeta.ts)，提供 `getScopeChannelMeta`、`extractScopeSampleValue`、`computeNiceScaleBound`、`formatScopeChannelValue`、`formatScopeAxisTick`，区分 `瞬时电压 V`、`有效值电压 V~`、`瞬时电流 A/mA` 与 `有效值电流 A~`。\n   - 更新 [useCircuitStore.ts](file:///e:/codelearn/Circuit/src/store/useCircuitStore.ts) 的 `sampleScopeChannels` 采集 `tel.current` / `tel.iRms`（开关切换时当场记录一帧 $t=0_+$ 采样，切换 `dc/rms` 模式时清理旧量纲缓存）；更新 [BottomAnalysisDock.tsx](file:///e:/codelearn/Circuit/src/components/BottomAnalysisDock.tsx) 实现按量纲分轴自动缩放（电压与电流共存时左侧显示蓝底 `V` 刻度、右侧显示绿底 `mA`/`A` 刻度）并在图例中标明元件、测量量与单位；同步简化 [Workbench3DView.tsx](file:///e:/codelearn/Circuit/src/components/Workbench3DView.tsx) 中直流电流表/电压表 3D 标签显示（直流电流表仅显示电流，不再显示 `-0.00V`）。\n\n3. **区分储能无功交换与实际热损耗，修复无功补偿误报电感/电容过载**\n   - 在 [componentCatalog.ts](file:///e:/codelearn/Circuit/src/engine/componentCatalog.ts) 为 `CAPACITOR` 增加默认 `maxVoltage: 450`（V），为 `INDUCTOR` 增加 `maxCurrent: 8`（A），为 `TRANSFORMER` 增加 `maxCurrent: 15`（A）。\n   - 在 [mnaSolver.ts](file:///e:/codelearn/Circuit/src/engine/mnaSolver.ts) 中，将 `CAPACITOR`、`INDUCTOR`、`TRANSFORMER` 的有功 `power` 修正为真实热损耗（理想电容热耗 `0W`，电感铜耗 $I^2 \\cdot 0.02\\,\\Omega$，变压器副边铜耗 $I_2^2 \\cdot 0.01\\,\\Omega$），无功交换/传输视在功率 `VA` 改放 `extraInfo`；抽出共享函数 `formatComponentOverloadWarning`，电容按峰值耐压 `maxVoltage` 判定，电感与变压器按载流上限 `maxCurrent` 及铜耗判定，并在 `advanceCircuitSimulation` 满足完整交流周期时按 RMS/平均有功重构 `result.warnings`。\n   - 更新 [PropertyInspector.tsx](file:///e:/codelearn/Circuit/src/components/PropertyInspector.tsx) 暴露 `额定耐压 (V)` / `额定载流 (A)` 编辑项并准确标注 `热损耗 P` 与 `耐压裕度` / `电流负载`。\n\n4. **RC/RL 暂态时间从开关切换动作开始计时，并展示初始储能值**\n   - 在 [useCircuitStore.ts](file:///e:/codelearn/Circuit/src/store/useCircuitStore.ts) 新增 `TransientEventSnapshot`（`transientAnchor`），在加载、复位及开关/激励源阶跃操作时记录切换时刻 `t0`、`hasSwitched` 与换路瞬时 `initialCapVoltages` / `initialIndCurrents`。\n   - 通过 [tutorialTypes.ts](file:///e:/codelearn/Circuit/src/tutorial/tutorialTypes.ts)、[useTutorialStore.ts](file:///e:/codelearn/Circuit/src/store/useTutorialStore.ts) 与 [TutorialCoursePanel.tsx](file:///e:/codelearn/Circuit/src/components/TutorialCoursePanel.tsx) 向课程公式传入 `elapsedSinceSwitch`、`hasSwitched` 与初值；在 [TutorialWorkspace.tsx](file:///e:/codelearn/Circuit/src/components/TutorialWorkspace.tsx) 传输栏增加 `[data-testid=\"tutorial-switch-dt\"]`（`Δt=...s`）徽标，并更新 [lessonsCh3ToCh6.ts](file:///e:/codelearn/Circuit/src/tutorial/lessonsCh3ToCh6.ts) 的 `l7-s1`、`l7-s2`、`l7-s3`、`l8-s1` 动态公式展示。\n\n### 验证结果\n\n- **自动化测试与构建**（[tutorial.test.ts](file:///e:/codelearn/Circuit/tests/tutorial.test.ts) 新增 4 项回归测试后运行 `npm test` 与 `npm run build`）：\n  - `vitest run`：4 个测试文件、38 项测试全部通过（`engine.test.ts` 17 项、`ponder.test.ts` 8 项、`api.test.ts` 4 项、`tutorial.test.ts` 9 项，耗时 8.94s）。\n  - `tsc --noEmit && vite build`：零报错完成构建。\n- **真实浏览器 `1280×720` 验证**（访问 `http://127.0.0.1:5173`，无控制台运行时报错）：\n  - **场景 A（`l7-s1`）**：`K1` 接地空转至 `t=0.52s` 时公式提示 `待切换 K1 开始计时` 且不显示 `Δt`；切换至 `+10V` 后，传输栏显示 `Δt=0.94s`（`t=1.46s`），公式显示 `本次充电已进行 Δt=0.94s · 初值 0.00 V`。\n  - **场景 B（`l7-s2`）**：`Vc=10.00V` 时点击暂停，在 `已暂停` 状态拨动 `K1` 接地，立即显示 `Vc ≈ 9.99V / 10.00V`、`Ic = -10.00 mA`，通关状态保持 `待完成`（累计 `5/36` 未误增）；步进至 `Vc = 9.27 V` 时，示波器 `[data-testid=\"scope-channel-pill-am_c\"]` 显示 `CH2 PA_C 电流 · 瞬时电流: -9.27 mA`，画布左轴 `+12V / 0V / -12V`、右轴 `+12mA / 0mA / -12mA` 双波形清晰可见（见 [step_78_shot_1_screenshot_1_scenario_b.png](file:///C:/Users/%E8%93%9D%E6%B4%B5/.gemini/antigravity/brain/ea1deaa3-0525-4745-9f3e-ab4dab37a283/browser_sandbox/screenshots/step_78_shot_1_screenshot_1_scenario_b.png)）。\n  - **场景 C（`l10-s2`）**：闭合 `K_comp` 达稳态后，`cosφ=1.00`、`CH1 PA_主干线 · 有效值电流: 1.12 A~`、`CH2 PA_电机支路 · 有效值电流: 1.54 A~`，所有支路状态为 `正常`、零过载/过流告警，版面无重叠裁剪（见 [final_step_86.png](file:///C:/Users/%E8%93%9D%E6%B4%B5/.gemini/antigravity/brain/57ff23a6-5208-4eb1-94d9-2a5a6f3f7e9a/browser_evidence/ea1deaa3-0525-4745-9f3e-ab4dab37a283/final_step_86.png)）。\n\n验证用后台开发服务器及临时 `data/` 已全部清理关闭。如确认无误，需要提交当前 v0.4 改动或继续下一阶段开发请随时告诉我。",
+      "chunk": 2
+    },
+    {
+      "step": 1592,
+      "role": "user",
+      "text": "提交0.4。然后开始补齐电工学下册的全部教学内容",
+      "chunk": 3
+    },
+    {
+      "step": 1838,
+      "role": "assistant",
+      "text": "正在运行全量 Vitest 单元测试与 Vite 生产构建以验证下册 8 章 14 课 42 步电路及混合信号求解器，稍等片刻即可看到结果。",
+      "chunk": 3
+    },
+    {
+      "step": 1893,
+      "role": "assistant",
+      "text": "已应用运放非线性负反馈过零收敛修复并更新全部 78 步教学测试，正在执行全量 Vitest 测试与生产构建，稍等片刻即可查看结果。",
+      "chunk": 3
+    },
+    {
+      "step": 1907,
+      "role": "assistant",
+      "text": "已将第 26 课混合闭环终极挑战中风扇负载灯的额定功率显式标定为 `12V / 12W`（等效 `12Ω`），正在运行全量 43 项单元测试（涵盖全部 78 个教学步骤）和 Vite 生产构建，等待执行结果。",
+      "chunk": 3
+    },
+    {
+      "step": 1936,
+      "role": "assistant",
+      "text": "已为下册数字与混合信号篇全部 21 个教学阶段的 `autoDemo` 补齐描述字段，正在运行全量 Vitest 测试与 TypeScript / Vite 生产构建 (`task-1935`)，等待完成后立刻继续浏览器端到端验证。",
+      "chunk": 3
+    },
+    {
+      "step": 1942,
+      "role": "assistant",
+      "text": "已启动本地前后端开发服务器（`http://127.0.0.1:5173/`），并已指派浏览器测试子代理在 `1280×720` 视口下实测电工学上/下册目录筛选、串联稳压器（第 19 课）、NE555 无稳态振荡与 3D 思索剧场（第 24 课）以及 2 位 Flash ADC（第 26 课），等待校验报告。",
+      "chunk": 3
+    },
+    {
+      "step": 1952,
+      "role": "assistant",
+      "text": "已完成 **`v0.4` Git 提交**，并全面补齐**《电工学下册 · 电子技术》全部教学内容**以及配套的混合信号求解器、新增 `TIMER_555` 时基元件、3D 思索剧场与分册课程目录。\n\n### 一、Git 提交状态\n- **`v0.4` 基线已提交**：commit `b3207d6`（`feat: ElectroLab 3D v0.4 新增电工学上册零基础交互教学模式并修复暂态换路、双轴示波与无功告警`）位于 `main` 分支。\n- **本次电工学下册改动**：当前保留在工作区未提交（全量测试与构建已通过），待你验收确认后可随时提交。\n\n---\n\n### 二、仿真引擎与元件底座升级\n1. **全新内置 `TIMER_555`（NE555 时基定时器，第 46 号标准元件）**\n   - 在 [shared/types.ts](file:///e:/codelearn/Circuit/shared/types.ts)、[src/engine/componentCatalog.ts](file:///e:/codelearn/Circuit/src/engine/componentCatalog.ts) 与 [src/sim3d/meshes.ts](file:///e:/codelearn/Circuit/src/sim3d/meshes.ts) 中新增 6 脚封装（`vcc`、`trig`、`thres`、`dis`、`out`、`gnd`）与 3D DIP 芯片模型，并在 [src/components/PropertyInspector.tsx](file:///e:/codelearn/Circuit/src/components/PropertyInspector.tsx) 补充引脚速查。\n   - 在 [src/ponder/ponderExpandedData.ts](file:///e:/codelearn/Circuit/src/ponder/ponderExpandedData.ts)、[src/ponder/ponderScenesExpanded.ts](file:///e:/codelearn/Circuit/src/ponder/ponderScenesExpanded.ts)、[src/ponder/ponderSceneRegistry.ts](file:///e:/codelearn/Circuit/src/ponder/ponderSceneRegistry.ts) 与 [src/ponder/ponderInstanceBridge.ts](file:///e:/codelearn/Circuit/src/ponder/ponderInstanceBridge.ts) 补全 NE555 的 3D 思索动画剧场与当前元件实例参数联动。\n2. **混合信号统一求解与非线性闭环收敛修复**（[src/engine/mnaSolver.ts](file:///e:/codelearn/Circuit/src/engine/mnaSolver.ts)）\n   - 修复数字门直接读取模拟驱动源（如单电源 `OPAMP` 比较器、`TIMER_555`）时同步传播的 `digitalDrivenNets` + 外层混合迭代通道（`dt=0` 与 `dt>0` 均生效），支撑并行 Flash ADC、窗口报警及闭环温控链路。\n   - 为 `COUNTER_4BIT` 补充异步复位引脚 `rst === 1` 的即时清零传播（`1010₂ → RST` 构成模 10 BCD 计数器）。\n   - 修复 `OPAMP` 驱动 `BJT_NPN` 等深非线性负反馈环路（如串联稳压器第 19 课 `l19-s2`/`l19-s3`）在 Newton-Raphson 迭代穿过零区饱和界线时的振荡问题（`opampZeroCrossCount` 零区阻尼着陆 + `maxNrIters = 80`）。\n\n---\n\n### 三、教学体系双卷目录与电工学下册全章节（8 章 · 14 课 · 42 步）\n已在 [src/tutorial/tutorialTypes.ts](file:///e:/codelearn/Circuit/src/tutorial/tutorialTypes.ts)、[src/components/TutorialCoursePanel.tsx](file:///e:/codelearn/Circuit/src/components/TutorialCoursePanel.tsx) 与 [src/tutorial/curriculumIndex.ts](file:///e:/codelearn/Circuit/src/tutorial/curriculumIndex.ts) 中扩展 `volume: 'vol1' | 'vol2'` 体系与目录筛选开关（**`全部` 15 章 / `上册·电工` 7 章 / `下册·电子` 8 章，总计 26 课 78 步**）。\n\n#### 下册模电篇（Ch.7–Ch.10，第 13–19 课 · 21 步，[src/tutorial/lessonsVol2Analog.ts](file:///e:/codelearn/Circuit/src/tutorial/lessonsVol2Analog.ts)）\n- **第 7 章 半导体二极管与光电器件**\n  - **第 13 课** `PN 结单向导电、桥式整流与齐纳稳压`（死区导通 → 全波桥式整流电容平波 → 齐纳反向钳位稳压）\n  - **第 14 课** `LED 光电器件特性、限流计算与交流反向击穿保护`\n- **第 8 章 三极管放大与场效应开关**\n  - **第 15 课** `BJT 特性曲线、共射放大 Q 点与发射极旁路电容 C_E 增益跃升`\n  - **第 16 课** `NMOS 场效应管转移特性、低边大功率开关与反相器逻辑`\n- **第 9 章 集成运算放大器及其应用**\n  - **第 17 课** `运放“虚短/虚断”与反相、同相及差分减法放大电路`\n  - **第 18 课** `运放加法器、RC 积分方波→三角波变换与施密特滞回比较器`\n- **第 10 章 直流稳压电源系统设计**\n  - **第 19 课** `NPN 射极扩流稳压 → 运放取样可调串联稳压 (+9.0V) → 全栈 AC→DC 重载冲击贯通`\n\n#### 下册数电与混合信号篇（Ch.11–Ch.14，第 20–26 课 · 21 步，[src/tutorial/lessonsVol2DigitalMixed.ts](file:///e:/codelearn/Circuit/src/tutorial/lessonsVol2DigitalMixed.ts)）\n- **第 11 章 门电路与组合逻辑设计**\n  - **第 20 课** `基本逻辑门 (AND/OR/NOT)、异或 (XOR) 与三人多数表决电路`\n  - **第 21 课** `2:1 数据选择器 (MUX)、半/全加器与 2 位行波进位加法 + HEX 显示`\n- **第 12 章 触发器、计数器与 LUT 芯片**\n  - **第 22 课** `D 触发器边沿锁存、JK 触发器二分频与 1010₂→RST 模 10 (BCD) 计数器`\n  - **第 23 课** `可编程 8 槽真值芯片 (CUSTOM_TRUTH_8) 查表/公式烧录与红绿灯互锁实战`\n- **第 13 章 555 时基电路与数模转换 (DAC)**\n  - **第 24 课** `NE555 双门限滞回窗口 (1/3~2/3 Vcc)、单稳态定宽定时与无稳态多谐方波振荡`\n  - **第 25 课** `4 位二进制加权 DAC (-0.5V/LSB)、R-2R 梯形网络 DAC 与 计数器+DAC 阶梯波合成`\n- **第 14 章 模数转换 (ADC) 与混合闭环**\n  - **第 26 课** `双限比较器越限报警 → 2 位超高速并行 Flash ADC (0~3 HEX 实时量化) → 运放测温 + 数字联锁 + NMOS 大功率散热贯通站`\n\n---\n\n### 四、验证与构建结果\n1. **自动化测试与构建**（修改后最新一次执行）：\n   - `npm test`（[tests/engine.test.ts](file:///e:/codelearn/Circuit/tests/engine.test.ts)、[tests/ponder.test.ts](file:///e:/codelearn/Circuit/tests/ponder.test.ts)、[tests/api.test.ts](file:///e:/codelearn/Circuit/tests/api.test.ts)、[tests/tutorial.test.ts](file:///e:/codelearn/Circuit/tests/tutorial.test.ts)）：**4 个测试文件、43 项用例全部通过**，包括全部 **78 个教学步骤 `runCheckpointAutoDemo()` 通关校验**、第 15 课旁路电容增益、第 19 课串联稳压 `+9.0V`/`+5.0V`、第 24 课 555 单稳脉冲释放、第 25 课 4 位 DAC/R-2R 精度以及第 26 课 Flash ADC `0→1→2→3` 实时量化。\n   - `npm run build`（`tsc --noEmit && vite build`）：零错误通过（`1637 modules transformed`）。\n2. **`1280×720` 实机浏览器端到端验证**：\n   - 验证教学目录 `全部 (15章)` / `上册·电工 (7章)` / `下册·电子 (8章)` 筛选切换、第 19 课 Step 2 自动调压稳至 `9.01V` 通关、第 24 课 Step 3 NE555 示波双通道波形与 3D 思索剧场打开关闭、以及第 26 课 Step 2 Flash ADC 注入 `3.6V` 在 3D/2D 工作台及数字公式同步输出 `HEX = 3 (11₂)` 通关（全程 **0 个控制台错误**）。\n   - 验证后已关闭本地开发服务进程并清理测试产生的 `data/` 运行目录。\n\n如需我现在把电工学下册这一整套改动提交为新版本（如 `v0.5`），告诉我即可执行 `git add` 与 `git commit`。",
+      "chunk": 3
+    },
+    {
+      "step": 1953,
+      "role": "user",
+      "text": "提交一次，下一轮来优化其它界面入口，添加一个首页入口，其中概括应用功能和特色，支持直接跳转到注册和工作场，优化电路跑交流电时的电流动效，新增辉光灯管，简易编码器等电路显示模块，配齐基础的图灵完备组件",
+      "chunk": 3
+    },
+    {
+      "step": 2267,
+      "role": "assistant",
+      "text": "正在等待后台测试与构建任务 (`task-2264`) 完成，以查看 `tests/engine.test.ts` 的具体失败行号并继续修复。",
+      "chunk": 3
+    },
+    {
+      "step": 2282,
+      "role": "assistant",
+      "text": "已运行全量测试与生产构建任务 (`task-2281`)；`ponder`、`api`、`engine` 三个测试集已全部通过，正在等待 `tutorial` 回归测试和 `npm run build` 完成通知。",
+      "chunk": 3
+    },
+    {
+      "step": 2288,
+      "role": "assistant",
+      "text": "已启动开发服务器 (`task-2285`)，并委派浏览器验证子代理 (`1da15b6a-83ef-4415-8d84-e666e90b32c0`) 在 `1280×720` 分辨率下逐项检查首页入口、直接学生注册弹窗、辉光管/ALU 3D 思索预览、50Hz 交流双向流动效及图灵完备 4 位 CPU 数据通路，正在等待验证结果回传。",
+      "chunk": 3
+    },
+    {
+      "step": 2297,
+      "role": "assistant",
+      "text": "已完成 **v0.5 提交** 以及本轮首页入口、界面导航优化、交流双向电流动效、辉光灯管/编码器显示模块与图灵完备 4 位计算组件的开发与全套验证（本轮 `v0.6` 改动按惯例保留在工作区未提交，方便您直接审阅或继续调整）。\n\n---\n\n### 一、Git 提交状态\n- 已提交电工学下册全套教学成果到主分支：`3782f6a`（`feat: ElectroLab 3D v0.5 补齐电工学下册模电数电全套教学、NE555与混合信号求解`）。\n- 当前工作区干净地保留本轮全部新增/修改文件，`data/` 临时测试库已清理。\n\n---\n\n### 二、首页入口与界面跳转优化\n- **新增应用首页入口**：[LandingHomeView.tsx](file:///e:/codelearn/Circuit/src/components/LandingHomeView.tsx)（默认首屏展示，[App.tsx](file:///e:/codelearn/Circuit/src/App.tsx) 将初始视图设为 `'home'`）\n  - 概括平台核心能力与动态统计：**53 类**电路模块、**15 章 / 78 关**上下册零基础课程、**50Hz+ 抗混叠交流双向流**、**辉光灯管与编解码器**、**4 位图灵完备计算套件**、**MC 风格 3D 思索剧场**以及 **自定义真值表/云端封装/交流论坛**。\n  - **直达操作按钮**：一键跳转 **立即进入 3D/2D 工作场**、**免费注册学生账号**（直接打开注册标签页）、**账号登录**、**零基础教学模式**（含上册 / 下册直达按钮）、**交流论坛**、辉光管/ALU **3D 思索预览**，以及 4 个精选实验卡片（点击后立即装载电路并自动启动仿真进入工作场）。\n- **认证与导航入口优化**：\n  - [AuthModal.tsx](file:///e:/codelearn/Circuit/src/components/AuthModal.tsx) 支持 `initialTab?: 'login' | 'register'`，首页及导航栏的“学生注册”入口可直接切换至注册表单。\n  - [HeaderBar.tsx](file:///e:/codelearn/Circuit/src/components/HeaderBar.tsx) 品牌图标点击可回首页，顶部导航扩展为 `首页 / 3D/2D 工作场 / 教学模式 / 交流论坛`，访客态拆分独立的 `登录` 与 `学生注册` 按钮。\n  - [ForumView.tsx](file:///e:/codelearn/Circuit/src/components/ForumView.tsx) 顶部新增 `前往 3D/2D 工作场` 与 `学生注册` 快捷入口；[useTutorialStore.ts](file:///e:/codelearn/Circuit/src/store/useTutorialStore.ts) 与 [TutorialCoursePanel.tsx](file:///e:/codelearn/Circuit/src/components/TutorialCoursePanel.tsx) 支持按上册 (`vol1`) / 下册 (`vol2`) 直接过滤跳入。\n  - > 注：在 `1280×720` 视口实测下，首页视图顶部导航与“学生注册”完全显示无横向滚动条（`scrollWidth = 1280`）；切入“3D/2D 工作场”视图时由于中间工具栏较宽，最右侧 `学生注册` 按钮在 `1280px` 宽度下边缘略有裁切，不影响从首页或登录弹窗切换注册。\n\n---\n\n### 三、50Hz 交流双向电流动效升级\n- [shared/types.ts](file:///e:/codelearn/Circuit/shared/types.ts) & [mnaSolver.ts](file:///e:/codelearn/Circuit/src/engine/mnaSolver.ts)：`AcHistorySlice` 同步积分每个工频周期内各导线的 `iRms`、`dcMean`、`acFrequency` 与 `isAc` 标志。正负交替反转且直流分量占比低于阈值 (`|dcMean| < 0.65 · iRms`) 的纯交流支路判定为 `isAc = true`；二极管半波整流等单向脉动直流支路保持 `isAc = false`。\n- [Workbench3DEngine.ts](file:///e:/codelearn/Circuit/src/sim3d/Workbench3DEngine.ts)、[Schematic2DSidebar.tsx](file:///e:/codelearn/Circuit/src/components/Schematic2DSidebar.tsx)、[index.css](file:///e:/codelearn/Circuit/src/index.css) & [PropertyInspector.tsx](file:///e:/codelearn/Circuit/src/components/PropertyInspector.tsx)：\n  - 3D 导线能量球与 2D 原理图 `.wire-flow-anim-ac` 虚线均以平滑正弦往复方式渲染交流支路（彻底避免 `50Hz` 在 `60fps` 刷新率下的频闪假死），直流与单向整流导线保持单向流动；属性面板新增交流导线有效值 (`A~ / mA~`) 与频率读数。\n\n---\n\n### 四、显示/编码模块与图灵完备组件（全库 53 类模块）\n在 [componentCatalog.ts](file:///e:/codelearn/Circuit/src/engine/componentCatalog.ts)、[mnaSolver.ts](file:///e:/codelearn/Circuit/src/engine/mnaSolver.ts)、[meshes.ts](file:///e:/codelearn/Circuit/src/sim3d/meshes.ts)、[Schematic2DSidebar.tsx](file:///e:/codelearn/Circuit/src/components/Schematic2DSidebar.tsx)、[digitalLogicAnalysis.ts](file:///e:/codelearn/Circuit/src/engine/digitalLogicAnalysis.ts)、[useCircuitStore.ts](file:///e:/codelearn/Circuit/src/store/useCircuitStore.ts) 及全套 3D 思索模块（[ponderExpandedData.ts](file:///e:/codelearn/Circuit/src/ponder/ponderExpandedData.ts)、[ponderScenesExpanded.ts](file:///e:/codelearn/Circuit/src/ponder/ponderScenesExpanded.ts)、[ponderSceneRegistry.ts](file:///e:/codelearn/Circuit/src/ponder/ponderSceneRegistry.ts)、[ponderInstanceBridge.ts](file:///e:/codelearn/Circuit/src/ponder/ponderInstanceBridge.ts)）完整接入以下 7 个新器件与 2 个综合范例：\n1. **显示与编解码模块**：\n   - `NIXIE_TUBE`（复古辉光数码管：玻璃管外壳、金属丝网罩、暖橙氖光晕与可配置 >9 BCD 消隐 `bcdBlank`）\n   - `ENCODER_4_2`（4 线-2 线优先编码器，支持 `I3` 最高优先级与有效激活标志 `GS`）\n   - `DECODER_2_4`（2 线-4 线地址译码器，带高电平禁止端 `INH`）\n   - `MUX_4BIT`（4 位二选一总线选择器）\n2. **图灵完备 4 位计算核心套件**：\n   - `REGISTER_4BIT`（带写使能 `WE` 与异步清零 `RST` 的 4 位并行寄存器）\n   - `ALU_4BIT`（4 位算术逻辑单元，支持 `ADD / SUB / AND / XOR` 与 `COUT / ZERO` 状态标志）\n   - `RAM_16X4`（16×4 位静态存储器，异步读取、时钟上升沿写回，[PropertyInspector.tsx](file:///e:/codelearn/Circuit/src/components/PropertyInspector.tsx) 提供 16 单元十六进制交互读写表）\n3. **新增经典实验范例**（[circuitPresets.ts](file:///e:/codelearn/Circuit/src/presets/circuitPresets.ts)，同步修复 `preset-ac-nixie-encoder` 中 `lamp_ac` 引脚名为 `p1`/`p2` 并更新 [server/seed.ts](file:///e:/codelearn/Circuit/server/seed.ts) 种子回退值）：\n   - `preset-ac-nixie-encoder`：**50Hz 交流双向流与优先编码辉光显示台**\n   - `preset-turing-4bit-cpu`：**图灵完备 4 位微处理器数据通路 (ALU + 寄存器 + 16×4 RAM + 双辉光管)**\n\n---\n\n### 五、验证结果\n1. **单元测试与构建**（全部在最终代码修改后实测通过）：\n   - `npm test`：**4 个测试文件 / 48 项测试全部通过**（[ponder.test.ts](file:///e:/codelearn/Circuit/tests/ponder.test.ts) 8 项验证全部 53 类 3D 思索场景与联调、 [api.test.ts](file:///e:/codelearn/Circuit/tests/api.test.ts) 4 项、 [engine.test.ts](file:///e:/codelearn/Circuit/tests/engine.test.ts) 25 项含交流/半波判定、辉光管、编解码、MUX、寄存器、ALU、RAM 读写与两大新范例、 [tutorial.test.ts](file:///e:/codelearn/Circuit/tests/tutorial.test.ts) 11 项覆盖上下册全部 78 关自动通关）。\n   - `npm run build`：`tsc --noEmit && vite build` 通过，零类型与打包错误。\n2. **1280×720 浏览器端到端实测**（零控制台/页面异常）：\n   - 验证首页默认展示及核心统计（`53 类`、`15 章 · 78 关`、`50Hz+ 双向流`、`home-cta-simulator` 等直达入口）-> 点击“免费注册学生账号”直接打开注册表单标签页 -> 从首页触发 `IN-14 Nixie Tube` 3D 思索剧场 -> 一键载入 `50Hz 交流双向流与优先编码辉光显示台` 后，2D 画布检出 4 条 `.wire-flow-anim-ac` 双向流路径，且切换 `I3` 开关后辉光管实时由 `2` 跳变为 `3` -> 载入 `图灵完备 4 位微处理器数据通路` 后 `NIX_MEM` 与 `NIX_ACC` 正常推进显示，属性栏完整渲染 `16×4 SRAM` 单元表。",
+      "chunk": 3
+    },
+    {
+      "step": 2298,
+      "role": "user",
+      "text": "555 一键演示不能重复触发。 首次成功，脉冲结束后再次点击无响应。当前动作只把开关设为 1，需要增加“复位、等待、重新触发”的过程。[对应代码 (line 1603)](C:/Temp/Circuit-v05-experience-3782f6a/src/tutorial/lessonsVol2DigitalMixed.ts:1603)\n\n频率关卡应验证实际波形。 页面用公式算频率；按输出边沿测量，默认参数约为 1.31Hz／理论 1.39Hz，RB=10kΩ 时约为 4.59Hz／理论 4.81Hz。建议同时展示理论与实测值，并说明模型误差；通关应检查实际周期。[当前判定 (line 1695)](C:/Temp/Circuit-v05-experience-3782f6a/src/tutorial/lessonsVol2DigitalMixed.ts:1695)\n\n教学反馈需要统一。 通关后继续操作，顶部保留完成记录，当前卡片却变回“待完成”；单稳脉冲自然结束也会如此。建议分别显示“本关已完成”和“当前实验状态”。555、阶梯波课程还应默认打开示波器，减少寻找面板的步骤。\n\n部分教学名称需要更准确。 末课目前没有“风扇散热→温度下降”的反馈模型，称“温控联锁实验”更贴切；“闪存并行 ADC”也应改为“闪速／并行 ADC”。",
+      "chunk": 4
+    },
+    {
+      "step": 2457,
+      "role": "assistant",
+      "text": "正在等待 `npm test` 与 `npm run build` 执行完成……",
+      "chunk": 4
+    },
+    {
+      "step": 2465,
+      "role": "assistant",
+      "text": "正在等待 `npm test` 与 `npm run build` 完成……",
+      "chunk": 4
+    },
+    {
+      "step": 2471,
+      "role": "assistant",
+      "text": "已启动浏览器验证子代理，正在 `1280×720` 分辨率下验证 555 可重复触发、实测频率校验、统一状态反馈、默认示波器及命名修正……",
+      "chunk": 4
+    },
+    {
+      "step": 2488,
+      "role": "assistant",
+      "text": "已完成上述四项问题的修复与改进，并通过单元测试、生产构建与 `1280×720` 浏览器实机验证：\n\n### 1. 555 单稳态一键演示支持任意状态重复触发\n- **多步等待动作支持**：在 [tutorialTypes.ts](file:///e:/codelearn/Circuit/src/tutorial/tutorialTypes.ts#L60-L92) 与 [useTutorialStore.ts](file:///e:/codelearn/Circuit/src/store/useTutorialStore.ts#L118-L126) 中为 `autoDemo` 新增 `{ kind: 'wait', seconds }` 与 `settleSeconds` 能力。\n- **复位—等待—重触发闭环**：将 `l24-s2`（[lessonsVol2DigitalMixed.ts](file:///e:/codelearn/Circuit/src/tutorial/lessonsVol2DigitalMixed.ts#L1602-L1612)）的一键演示改为 `sw_trig → 0`（复位）→ 等待 `1.25s`（让耦合电容 `C_trig` 经上拉电阻完全恢复充电，同时兼容脉冲中途点击时让前一次 `1.1s` 脉冲自然结束并放空 `Ct`）→ `sw_trig → 1`（重新产生负跳变触发）→ 推进 `0.60s` 停在脉冲高电平期。无论首次点击、脉冲结束后再次点击还是脉冲中途点击均可稳定重触发。\n\n### 2. 555 无稳态频率关卡改为验证实际输出波形并展示模型误差\n- **子步滞回边沿周期测量**：在 [mnaSolver.ts](file:///e:/codelearn/Circuit/src/engine/mnaSolver.ts#L2618-L2696) 中新增 `WaveformEdgeStats`，在子步推进（`h ≤ 2ms`）内通过 `2.0V / 3.0V` 施密特滞回与 `2.5V` 线性插值实时测量连续上升沿周期 `periodSec`、实际频率 `frequencyHz`、占空比及周期计数，并在修改元件参数或拓扑时（[useCircuitStore.ts](file:///e:/codelearn/Circuit/src/store/useCircuitStore.ts#L592-L595)）自动清空旧周期记录，杜绝仅改参数未形成真实波形即误判通关。\n- **理论值与实测值并列展示 + 误差机理说明**：在 `l24-s3`（[lessonsVol2DigitalMixed.ts](file:///e:/codelearn/Circuit/src/tutorial/lessonsVol2DigitalMixed.ts#L1620-L1736)）中同时展示理想公式值与输出边沿实测值（默认 `RB=47kΩ` 实测约 `1.31 Hz` / 理论 `1.39 Hz`；`RB=10kΩ` 实测约 `4.55–4.59 Hz` / 理论 `4.81 Hz`），说明 `DIS` 放电管导通内阻（约 `12 Ω`）、比较器输入端微弱漏电与离散翻转过冲导致的周期延长，并将通关判定改为检查实际输出周期 `T_实 ≤ 0.25 s`（`f_实 ≥ 4.0 Hz` 且已完成完整周期）。\n\n### 3. 统一教学通关记录与实时实验状态反馈，并默认打开示波器\n- **拆分“本关已完成”与“当前实验状态”**：在 [TutorialCoursePanel.tsx](file:///e:/codelearn/Circuit/src/components/TutorialCoursePanel.tsx#L517-L616) 中将持久通关徽章（`本关已完成 ✓` / `待完成`，与顶部进度和步骤对勾严格一致）与实时状态框（`当前实验状态`：`达标运行中 ✓`、`自由调节 / 脉冲已结束（通关已保留）`、`待达标`）分离展示；单稳脉冲自然结束或通关后继续调参时，不再回退显示“待完成”。\n- **555 与阶梯波等波形课程默认展开示波器**：将 `l24-s2`、`l24-s3`、`l25-s3`、`l22-s2` 的 `preferredAnalysisTab` 从 `'ac'` 修正为 `'telemetry'`，并为 `l24-s1`、`l25-s1`、`l25-s2` 预置 `scopeChannels`（[lessonsVol2DigitalMixed.ts](file:///e:/codelearn/Circuit/src/tutorial/lessonsVol2DigitalMixed.ts#L1448-L1451)、[lessonsVol2DigitalMixed.ts](file:///e:/codelearn/Circuit/src/tutorial/lessonsVol2DigitalMixed.ts#L2085-L2088)），进入课程即直接显示底部实时波形示波器；带电路前往自由仿真台时（[useTutorialStore.ts](file:///e:/codelearn/Circuit/src/store/useTutorialStore.ts#L211-L216)）亦自动保持分析示波面板开启。\n\n### 4. 修正课程与关卡专业术语名称\n- 在 [curriculumIndex.ts](file:///e:/codelearn/Circuit/src/tutorial/curriculumIndex.ts#L134-L142) 与 [lessonsVol2DigitalMixed.ts](file:///e:/codelearn/Circuit/src/tutorial/lessonsVol2DigitalMixed.ts#L2145-L2470) 中：\n  - 将误译的 `闪存并行 ADC` 统一改为 **`闪速／并行 ADC`**；\n  - 将无温度回落热反馈模型的第 14 章末课由 `混合闭环` / `闭环温控` 统一改为 **`温控联锁实验`**，并在实验说明中明确标注当前为开环温度比较 + 数字安全联锁驱动实验。\n\n### 验证结果\n- **自动化测试与构建**：新增专项回归测试 [tutorial.test.ts](file:///e:/codelearn/Circuit/tests/tutorial.test.ts#L429-L511)，运行 `npm test`（4 个测试文件共 **49** 项测试全部通过）与 `npm run build`（`tsc --noEmit && vite build` 零报错通过）。\n- **浏览器实机验证（`1280×720`）**：验证了 `l24-s2` 脉冲结束后保持 `本关已完成 ✓` 且无须手动复位即可二次触发、`l24-s3` 理论/实测双读数与实测周期通关、`l25-s3` 默认展示阶梯波示波器，以及第 26 课 `闪速／并行 ADC` 与 `温控联锁实验` 文案显示正常（控制台 `0` 报错）。",
+      "chunk": 4
+    },
+    {
+      "step": 2489,
+      "role": "user",
+      "text": "提交",
+      "chunk": 4
+    },
+    {
+      "step": 2497,
+      "role": "assistant",
+      "text": "已完成本地提交（未推送远端）：\n\n- **分支与提交**：`main` · `c632b3b` (`feat: ElectroLab 3D v0.6 首页入口、交流双向流动效、辉光编码与图灵完备组件及555教学体验修复`)\n- **变更统计**：`31 files changed, 3482 insertions(+), 182 deletions(-)`（含新增 [LandingHomeView.tsx](file:///e:/codelearn/Circuit/src/components/LandingHomeView.tsx) 等 `v0.6` 功能与本轮 555 重复触发、实际波形周期校验、统一状态反馈、默认示波器及第 14 章术语修正，共 49 项自动化测试通过且工作区已清空 `nothing to commit, working tree clean`）。",
+      "chunk": 4
+    }
+  ]
+}

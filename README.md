@@ -8,7 +8,8 @@
 <p align="center">
   <a href="https://github.com/lanxinge/ElectroLab-3D/archive/refs/heads/main.zip">下载源码</a> ·
   <a href="docs/使用指南.md">使用指南</a> ·
-  <a href="docs/品牌标识.md">Logo 与品牌文件</a>
+  <a href="docs/品牌标识.md">Logo 与品牌文件</a> ·
+  <a href="docs/ai-prompts/README.md">AI 开发 Prompt 与迭代记录</a>
 </p>
 
 ![ElectroLab 3D 首页](docs/assets/home.jpg)
@@ -104,3 +105,9 @@ node --env-file=.env --no-warnings --import tsx server/start.ts
 React / Three.js / SVG / Canvas 提供交互与展示，Zustand 管理共享状态；独立仿真循环驱动节点求解与混合逻辑。Express 和 SQLite 保存账号与工程数据。
 
 核心实现位于 `src/engine`，课程位于 `src/tutorial`，界面与状态位于 `src/components`、`src/store`，服务位于 `server`。
+
+## AI 协作开发记录
+
+[开发记录索引](docs/ai-prompts/README.md)整理了 Antigravity 的 13 条用户 Prompt 与完整可见回复、三条核心迭代链路，以及 Codex 的评估和 v1.0 修复记录，并关联对应的 Git 提交。
+
+仓库协作与 Git 管理规则见 [AGENTS.md](AGENTS.md)。
