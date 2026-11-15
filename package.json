@@ -9,6 +9,7 @@
     "dev:client": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc --noEmit && vite build",
     "start": "node --no-warnings --import tsx server/start.ts",
+    "launch": "node scripts/launch.mjs",
     "test": "vitest run"
   },
   "dependencies": {

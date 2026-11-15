@@ -1,41 +1,106 @@
-# ElectroLab 3D
+<p align="center">
+  <img src="public/brand/electrolab-logo.png" width="144" alt="ElectroLab 3D logo" />
+</p>
 
-交互电路实验室：3D 工作台、2D 原理图、实时示波器和电工电子教学课程。
-当前正式版本为 v1.0，发布标签为 `v1.0`。
+<h1 align="center">ElectroLab 3D</h1>
+<p align="center"><strong>看见电路。理解原理。</strong></p>
+<p align="center">3D / 2D 联动仿真 · 实时示波器 · 电工电子交互教学</p>
+<p align="center">
+  <a href="https://github.com/lanxinge/ElectroLab-3D/archive/refs/heads/main.zip">下载源码</a> ·
+  <a href="docs/使用指南.md">使用指南</a> ·
+  <a href="docs/品牌标识.md">Logo 与品牌文件</a>
+</p>
 
-## 本地运行
+![ElectroLab 3D 首页](docs/assets/home.jpg)
 
-已在 Node.js 24 环境验证。安装依赖后启动开发模式：
+## 这是什么
+
+面向电工电子学习者的交互实验室。拖动元件、连接引脚、调节参数，观察电压、电流与波形，再打开元件的原理演示理解变化。
+
+- **53 类器件与功能模块**：模拟、数字、测量、时序和自定义芯片。
+- **15 章、26 课、78 个教学步骤**：从电路基础，到 RC、NE555、ADC / DAC 与混合信号实验。
+- **同一电路，多种视角**：3D、2D 原理图和示波器共享实验状态，纯 2D 模式也持续仿真。
+- **解释当前元件**：将实际参数、读数与原理推导关联起来。
+- **保存与复用**：本地工程、账号项目、真值芯片、嵌套封装和社区作品。
+
+## 一键启动
+
+先安装 [Node.js 24](https://nodejs.org/)（包含 npm），下载并解压源码。
+
+### Windows
+
+双击根目录的 **`start.cmd`**。
+
+### macOS / Linux
+
+在项目目录执行：
+
+```sh
+sh start.sh
+```
+
+脚本会检查环境、在首次运行时安装依赖、自动构建、创建本机配置，并在服务就绪后打开浏览器。后续运行会复用已有依赖与构建；代码或配置更新时自动重新构建。
+
+默认网址为 **http://127.0.0.1:3001**。保持启动窗口运行，按 `Ctrl+C` 停止。
+
+所有平台也可使用：
+
+```sh
+npm run launch
+```
+
+### 启动选项
+
+```sh
+npm run launch -- --port 3002       # 指定端口
+npm run launch -- --no-open         # 只启动服务
+npm run launch -- --rebuild         # 强制重新构建
+npm run launch -- --setup-only      # 只安装并构建
+```
+
+Windows 也可直接运行 `start.cmd --port 3002`，macOS / Linux 使用 `sh start.sh --port 3002`。
+
+## 推荐体验路线
+
+1. **第一课**：调节电源电压，认识参考地与电表。
+2. **RC 换路**：暂停、切换、单步，观察电压连续与电流反向。
+3. **NE555**：重复触发脉冲，比较理论频率与实测周期。
+4. **DAC**：输入二进制码，再让计数器生成阶梯波。
+5. **自由设计**：把教学电路带到工作台，封装模块，导出自己的工程。
+
+核心实验无需登录。登录后可以把工程与芯片保存在当前部署的服务中。
+
+## 开发与手动运行
 
 ```sh
 npm ci
-npm run dev
+npm run dev        # 前端 5173，API 3001
 ```
-
-浏览器访问 http://127.0.0.1:5173。开发 API 默认使用 3001 端口。
-
-构建并启动正式运行模式（Windows、macOS、Linux 使用相同命令）：
 
 ```sh
 npm run build
-npm start
+npm start          # 正式运行模式，端口 3001
+npm test           # 仿真、教学、工程流程与 API 测试
 ```
 
-浏览器访问 http://127.0.0.1:3001。可用环境变量 `PORT` 指定端口，`DB_PATH` 指定 SQLite 文件；默认数据库为 `data/electrolab.sqlite`。
+一键脚本自动读取根目录 `.env`，配置项示例见 [.env.example](.env.example)。首次启动会生成并保存本机签名配置；项目数据默认保存在 `data/electrolab.sqlite`。
 
-## 体验路线
+手动运行并加载 `.env` 时可使用：
 
-- 首页「开始第一课／继续学习」：跟随课程操作，学习位置和完成记录保存在当前浏览器。
-- 精选实验：RC 充放电 → NE555 定时器 → DAC 阶梯波。共 15 章、26 课、78 个教学步骤。
-- 自动视图：复杂电路优先展开 2D 原理图；可随时手动切换 3D 或双视图。
-- 「返回自由仿真台」恢复原实验，包括暂停状态和示波缓存；「带电路去自由台」继续当前课程实验。
-- 项目库和工作台都支持 `.elab.json` 与旧版 `.json` 网表。工程文件格式版本独立于应用版本。
-- 本地实验无需登录。云端功能由当前部署的服务保存，演示账号可在登录窗口直接选择。
+```sh
+node --env-file=.env --no-warnings --import tsx server/start.ts
+```
 
-## 验证与实现
+| 配置 | 用途 | 默认值 |
+|---|---|---|
+| `PORT` | 服务端口 | `3001` |
+| `DB_PATH` | SQLite 文件 | `data/electrolab.sqlite` |
+| `JWT_SECRET` | 接口令牌签名 | 一键脚本自动生成并保存 |
 
-`npm test` 运行仿真、教学、工程流程、原理联动与 API 测试。`npm run build` 包含 TypeScript 类型检查。
+## 版本与实现
 
-`src/engine/mnaSolver.ts` 负责节点求解与时间推进，`circuitModels.ts` 定义模型和运行状态，`componentTelemetry.ts` 从求解结果计算读数。教学章节位于 `src/tutorial`，界面与工作台状态位于 `src/components`、`src/store`。
+`v1.0` 标签保留参赛功能基线 `65f2114`；`main` 包含后续品牌资源、文档和便捷启动更新。
 
-教学模型包含数值步长和器件近似，公式值与实测值可能存在偏差；555 实验同时展示两者并使用实际输出周期判定。工程文件保存电路结构与参数，浏览器刷新后仿真时间会重新开始。
+React / Three.js / SVG / Canvas 提供交互与展示，Zustand 管理共享状态；独立仿真循环驱动节点求解与混合逻辑。Express 和 SQLite 保存账号与工程数据。
+
+核心实现位于 `src/engine`，课程位于 `src/tutorial`，界面与状态位于 `src/components`、`src/store`，服务位于 `server`。

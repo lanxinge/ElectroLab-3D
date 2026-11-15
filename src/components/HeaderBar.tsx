@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   BookOpen,
   Check,
-  Cpu,
   Download,
   FolderOpen,
   FolderUp,
@@ -134,9 +133,7 @@ export const HeaderBar: React.FC<{
           title="返回平台首页"
           className="flex items-center gap-2 shrink-0 text-left rounded-lg hover:bg-slate-800/70 pr-1.5 py-0.5 transition"
         >
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center text-slate-950 font-black text-xs shadow">
-            <Cpu className="w-4 h-4" />
-          </div>
+          <img src="/brand/electrolab-icon.webp" alt="ElectroLab 3D" width={32} height={32} className="w-8 h-8 shrink-0" />
           <div className="hidden 2xl:block leading-tight">
             <div className="text-xs font-bold text-slate-100 tracking-tight">ElectroLab 3D</div>
             <div className="text-[10px] text-sky-400">本科电工学全栈仿真台</div>

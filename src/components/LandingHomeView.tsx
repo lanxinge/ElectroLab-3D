@@ -41,7 +41,7 @@ export const LandingHomeView: React.FC<LandingHomeViewProps> = ({ onOpenWorkbenc
       <div className="max-w-6xl mx-auto px-6 sm:px-9 py-10 lg:py-14 space-y-10">
         <section className="grid lg:grid-cols-[1.2fr_1fr] gap-10 items-center">
           <div>
-            <div className="flex items-center gap-2 text-xs tracking-widest text-sky-300 font-semibold"><CircuitBoard className="w-4 h-4" /> ELECTROLAB 3D <span className="text-slate-500 tracking-normal">交互电路实验室</span></div>
+            <div className="flex items-center gap-2 text-xs tracking-widest text-sky-300 font-semibold"><img src="/brand/electrolab-icon.webp" alt="" width={32} height={32} className="w-8 h-8" /> ELECTROLAB 3D <span className="text-slate-500 tracking-normal">交互电路实验室</span></div>
             <h1 className="mt-5 text-4xl sm:text-5xl xl:text-6xl font-bold leading-[1.2] tracking-tight">看见电路。<br /><span className="text-sky-300">理解原理。</span></h1>
             <p className="mt-5 max-w-lg text-sm sm:text-base leading-relaxed text-slate-400">搭接电路、调节参数，让抽象公式变成眼前的变化。<br className="hidden sm:block" />在 3D 实验台与 2D 原理图之间，找到自己的理解方式。</p>
             <div className="mt-7 flex flex-wrap gap-3">
